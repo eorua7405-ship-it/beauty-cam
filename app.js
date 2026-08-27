@@ -320,7 +320,13 @@ void main() {
       float lc = dot(res, lwF);
       float n1 = dot(texture2D(uFrame, uv + perp * pd).rgb, lwF);
       float n2 = dot(texture2D(uFrame, uv - perp * pd).rgb, lwF);
-      float valley = clamp((min(n1, n2) - lc) * 12.0, 0.0, 1.0);   // 양옆보다 어두운 골만
+      float valley = clamp((min(n1, n2) - lc) * 12.0, 0.0, 1.0);   // 수직 양옆보다 어두운가
+      // 선형성 검사: 주름은 '선'이라 진행 방향으로 어두움이 이어지고, 잡티는 '점'이라 끊긴다
+      vec2 fuv = vec2(fdir.x, fdir.y / uAspect);
+      float a1 = dot(texture2D(uFrame, uv + fuv * pd).rgb, lwF);
+      float a2 = dot(texture2D(uFrame, uv - fuv * pd).rgb, lwF);
+      float lineness = 1.0 - clamp((min(a1, a2) - lc) * 12.0, 0.0, 1.0);  // 진행 방향도 어두워야 1
+      valley *= lineness;
       float target = (n1 + n2) * 0.5;                              // 양옆 피부의 평균 밝기
       float lift = clamp(target / max(lc, 0.02), 1.0, 1.6);
       res = mix(res, res * lift, min(1.0, fw * 1.5) * valley);
@@ -469,8 +475,8 @@ function foldParams() {
   const faceWuv = Math.abs(L[454].x - L[234].x);
   const mk = (corner) => {
     // 시작: 콧방울 바로 옆 (코밑 높이, 코 쪽에 가깝게)
-    const top = [L[2].x + (corner.x - L[2].x) * 0.42,
-                 L[2].y];
+    const top = [L[2].x + (corner.x - L[2].x) * 0.50,
+                 L[2].y + (corner.y - L[2].y) * 0.12];   // 콧구멍 바로 아래는 피함
     // 끝: 입꼬리 위 대각선 방향에서 일찍 멈춤 (입꼬리 미도달)
     const bot = [corner.x + (corner.x - L[13].x) * 0.05,
                  corner.y - (corner.y - L[2].y) * 0.22];

@@ -302,23 +302,28 @@ void main() {
   }
 
 
-  // ===== 팔자주름 완화: 주름 골의 그림자만 밝혀서 옅어 보이게 =====
-  // 형태·질감·피부색은 그대로, 골에 진 명암만 주변 밝기 쪽으로 끌어올림 (Dodge)
+  // ===== 팔자주름 완화: 후보 영역 안에서 '실제 골'을 감지해 적용 =====
+  // 랜드마크는 탐색 영역만 정하고, 픽셀 분석으로 진짜 주름을 찾는다.
+  // 주름 = 예상 방향의 수직 양옆보다 어두운 홈. 골이 아닌 곳은 건드리지 않으므로
+  // 사람마다 주름 위치가 달라도 자동 적응하고, 입꼬리가 밝아지는 오류도 원천 차단.
   if (uWrinkle > 0.01) {
-    float fw = max(foldW(vUV, uFoldL, uFoldRad, uAspect),
-                   foldW(vUV, uFoldR, uFoldRad, uAspect)) * uWrinkle;
+    float wl = foldW(vUV, uFoldL, uFoldRad, uAspect);
+    float wr2 = foldW(vUV, uFoldR, uFoldRad, uAspect);
+    float fw = max(wl, wr2) * uWrinkle;
     if (fw > 0.01) {
-      vec3 accF = vec3(0.0);
-      for (int i = 0; i < 8; i++) {
-        float ang = 0.7853982 * float(i);
-        vec2 off = vec2(cos(ang), sin(ang)) * uRadius * 1.6 * uTexel;
-        accF += texture2D(uFrame, uv + off).rgb;
-      }
-      vec3 avgF = accF / 8.0;
+      vec4 seg = wl > wr2 ? uFoldL : uFoldR;
+      vec2 fdir = seg.zw - seg.xy; fdir.y *= uAspect;
+      fdir = normalize(fdir);
+      vec2 perp = vec2(-fdir.y, fdir.x); perp.y /= uAspect;   // 주름 방향의 수직
+      float pd = uFoldRad * 0.55;
       vec3 lwF = vec3(0.299, 0.587, 0.114);
-      float lc = dot(res, lwF), la = dot(avgF, lwF);
-      float lift = clamp(la / max(lc, 0.02), 1.0, 1.5);   // 주변보다 어두운 골만 밝게
-      res = mix(res, res * lift, min(1.0, fw * 1.5));
+      float lc = dot(res, lwF);
+      float n1 = dot(texture2D(uFrame, uv + perp * pd).rgb, lwF);
+      float n2 = dot(texture2D(uFrame, uv - perp * pd).rgb, lwF);
+      float valley = clamp((min(n1, n2) - lc) * 12.0, 0.0, 1.0);   // 양옆보다 어두운 골만
+      float target = (n1 + n2) * 0.5;                              // 양옆 피부의 평균 밝기
+      float lift = clamp(target / max(lc, 0.02), 1.0, 1.6);
+      res = mix(res, res * lift, min(1.0, fw * 1.5) * valley);
     }
   }
 

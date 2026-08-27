@@ -484,7 +484,8 @@ void main() {
     vec3 lw = vec3(0.299, 0.587, 0.114);
     float lumC = dot(c, lw);
     float lumA = dot(avg, lw);
-    float ratio = lumA / max(lumC, 0.02);
+    // 조정폭 ±15% 제한: 미세 음영들이 일제히 밝아져 얼굴이 창백해지는 것을 방지
+    float ratio = clamp(lumA / max(lumC, 0.02), 0.85, 1.15);
     float dnb = mix(1.0, ratio, max(spot, glare));   // 어두우면 Dodge, 밝으면 Burn
     vec3 r = c * dnb;
     // 붉은 자국 같은 '색 얼룩'은 색조만 살짝 주변으로 (밝기·질감은 유지)

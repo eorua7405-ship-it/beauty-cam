@@ -218,6 +218,7 @@
       <button class="pill on" id="tgSkin">피부결</button>
       <button class="pill on" id="tgBlemish">잡티</button>
       <button class="pill on" id="tgContour">윤곽</button>
+      <button class="pill on" id="tgWrinkle">주름</button>
       <button class="pill on" id="tgFilm">필름</button>
     </div>
     <!-- 화이트 밸런스 (☀ 버튼으로 열기) -->
@@ -310,7 +311,7 @@ let facing = "user";
 let useFlash = true;
 let focal = 28, hwZoom = false;
 let ssChoice = "auto";
-let skinOn = true, blemishOn = true, contourOn = true, filmOn = true;
+let skinOn = true, blemishOn = true, contourOn = true, wrinkleOn = true, filmOn = true;
 let filmPreset = 0, filmStrength = 0.6;
 let mode = "cam";   // cam | edit
 let landmarker = null, lastLandmarks = null;
@@ -350,6 +351,7 @@ document.querySelector("#editScreen .seg").addEventListener("click", (e) => {
 $("tgSkin").addEventListener("click", (e) => { skinOn = !skinOn; e.target.classList.toggle("on", skinOn); });
 $("tgBlemish").addEventListener("click", (e) => { blemishOn = !blemishOn; e.target.classList.toggle("on", blemishOn); });
 $("tgContour").addEventListener("click", (e) => { contourOn = !contourOn; e.target.classList.toggle("on", contourOn); });
+$("tgWrinkle").addEventListener("click", (e) => { wrinkleOn = !wrinkleOn; e.target.classList.toggle("on", wrinkleOn); });
 $("tgFilm").addEventListener("click", (e) => {
   filmOn = !filmOn;
   e.target.classList.toggle("on", filmOn);
@@ -453,6 +455,15 @@ let glReady = false, glOK = false, uLoc = {};
 
 const VS = `
 attribute vec2 aPos; varying vec2 vUV;
+// 선분(팔자 라인) 주변 캡슐 가중치: 라인에 가까울수록 1
+float foldW(vec2 p, vec4 seg, float rad, float aspect) {
+  vec2 pa = p - seg.xy, ba = seg.zw - seg.xy;
+  pa.y *= aspect; ba.y *= aspect;
+  float t = clamp(dot(pa, ba) / max(dot(ba, ba), 0.000001), 0.0, 1.0);
+  vec2 d = pa - ba * t;
+  return 1.0 - smoothstep(rad * 0.35, rad, length(d));
+}
+
 void main() { vUV = aPos * 0.5 + 0.5; gl_Position = vec4(aPos, 0.0, 1.0); }`;
 
 const FS = `
@@ -485,6 +496,10 @@ uniform float uFmVig;      // 비네트 세기
 uniform float uLens;       // 화각별 렌즈 왜곡 (28mm 배럴 ~ 50mm 평탄)
 uniform sampler2D uWarp;   // 윤곽 변위 맵 (실루엣 평탄화 벡터, RG 인코딩)
 uniform float uWarpAmt;    // 윤곽 보정 on/off
+uniform float uWrinkle;    // 팔자주름 완화 강도 (0.5 = 주름을 원래의 50%로)
+uniform vec4  uFoldL;      // 왼쪽 팔자 라인 (시작점.xy, 끝점.zw)
+uniform vec4  uFoldR;      // 오른쪽 팔자 라인
+uniform float uFoldRad;    // 팔자 캡슐 반경
 
 void main() {
   vec2 uv = vUV;
@@ -563,6 +578,26 @@ void main() {
   }
 
 
+  // ===== 팔자주름 완화: 주름 골의 그림자만 밝혀서 옅어 보이게 =====
+  // 형태·질감·피부색은 그대로, 골에 진 명암만 주변 밝기 쪽으로 끌어올림 (Dodge)
+  if (uWrinkle > 0.01) {
+    float fw = max(foldW(vUV, uFoldL, uFoldRad, uAspect),
+                   foldW(vUV, uFoldR, uFoldRad, uAspect)) * uWrinkle;
+    if (fw > 0.01) {
+      vec3 accF = vec3(0.0);
+      for (int i = 0; i < 8; i++) {
+        float ang = 0.7853982 * float(i);
+        vec2 off = vec2(cos(ang), sin(ang)) * uRadius * 1.6 * uTexel;
+        accF += texture2D(uFrame, uv + off).rgb;
+      }
+      vec3 avgF = accF / 8.0;
+      vec3 lwF = vec3(0.299, 0.587, 0.114);
+      float lc = dot(res, lwF), la = dot(avgF, lwF);
+      float lift = clamp(la / max(lc, 0.02), 1.0, 1.3);   // 주변보다 어두운 골만 밝게
+      res = mix(res, res * lift, fw);
+    }
+  }
+
   // ===== 선명도 =====
   if (uSharp > 0.001) {
     vec3 nb = texture2D(uFrame, uv + vec2(uTexel.x, 0.0)).rgb
@@ -635,7 +670,7 @@ function initGLOnce() {
   mkTex(0); mkTex(1); mkTex(2);
   ["uFrame","uMask","uTexel","uAspect","uRadius","uSmooth","uBlemish","uFilm","uSharp",
    "uContrast","uSat","uRGB","uWB","uTime","uLens",
-   "uWarp","uWarpAmt",
+   "uWarp","uWarpAmt","uWrinkle","uFoldL","uFoldR","uFoldRad",
    "uFmTone","uFmSat","uFmHi","uFmSh","uFmGrain","uFmVig"]
     .forEach(n => uLoc[n] = gl.getUniformLocation(prog, n));
   gl.uniform1i(uLoc.uFrame, 0);
@@ -684,7 +719,28 @@ function drawGL(srcTex, opt) {
   gl.uniform1f(uLoc.uFmVig, fm.vig);
   gl.uniform1f(uLoc.uLens, opt.lens ?? 0);
   gl.uniform1f(uLoc.uWarpAmt, opt.warp ? 1 : 0);
+  gl.uniform1f(uLoc.uWrinkle, opt.fold ? 0.5 : 0);   // 주름을 원래의 50%로
+  if (opt.fold) {
+    gl.uniform4f(uLoc.uFoldL, opt.fold.l[0], opt.fold.l[1], opt.fold.l[2], opt.fold.l[3]);
+    gl.uniform4f(uLoc.uFoldR, opt.fold.r[0], opt.fold.r[1], opt.fold.r[2], opt.fold.r[3]);
+    gl.uniform1f(uLoc.uFoldRad, opt.fold.rad);
+  }
   gl.drawArrays(gl.TRIANGLES, 0, 3);
+}
+
+// 팔자 라인 위치: 콧방울 옆 → 입꼬리 바깥 (좌우 각각). GL은 상하 반전이라 y는 1-y
+function foldParams() {
+  if (!wrinkleOn || !lastLandmarks) return null;
+  const L = lastLandmarks;
+  const faceWuv = Math.abs(L[454].x - L[234].x);
+  const mk = (corner) => {
+    const top = [L[2].x + (corner.x - L[2].x) * 0.55,
+                 L[2].y + (corner.y - L[2].y) * 0.18];
+    const bot = [corner.x + (corner.x - L[13].x) * 0.30,
+                 corner.y + 0.012];
+    return [top[0], 1 - top[1], bot[0], 1 - bot[1]];
+  };
+  return { l: mk(L[61]), r: mk(L[291]), rad: faceWuv * 0.05 };
 }
 
 // 윤곽 변위 맵 계산: 실루엣 36점을 가우시안 스무딩한 '매끈한 기준선'을 만들고,
@@ -780,6 +836,7 @@ function camPreviewFrame() {
     wb: wbCam,
     lens: LENS_MAP[focal],
     warp: contourOn && !!lastLandmarks,
+    fold: foldParams(),
     time: (performance.now() % 10000) / 10000,
   });
   return glCanvas;
@@ -798,6 +855,7 @@ function captureHighRes() {
     blemish: (blemishOn && lastLandmarks) ? 0.60 : 0,
     lens: LENS_MAP[focal],
     warp: contourOn && !!lastLandmarks,
+    fold: foldParams(),
     film: filmOn ? filmStrength : 0,               // 필름 프리셋을 사진에 직접 굽기
     fm: FILM_PRESETS[filmPreset],
     wb: wbCam,

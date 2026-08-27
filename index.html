@@ -205,6 +205,7 @@
 
   <div class="topbar" id="camTop" style="display:none">
     <div class="status" id="status"><span class="led"></span><span id="statusText">얼굴 찾는 중…</span></div>
+    <button class="icon-btn" id="wbBtn" title="화이트 밸런스">☀</button>
     <button class="icon-btn active" id="flashBtn" title="화면 플래시">⚡</button>
     <button class="icon-btn" id="flipBtn" title="카메라 전환">↺</button>
   </div>
@@ -219,6 +220,14 @@
       <button class="pill on" id="tgContour">윤곽</button>
       <button class="pill on" id="tgFilm">필름</button>
     </div>
+    <!-- 화이트 밸런스 (☀ 버튼으로 열기) -->
+    <div class="pillrow" id="wbBar" style="display:none" role="group" aria-label="화이트 밸런스">
+      <button class="pill on" data-wbc="auto">오토</button>
+      <button class="pill" data-wbc="5600">맑음</button>
+      <button class="pill" data-wbc="4500">흐림</button>
+      <button class="pill" data-wbc="3300">노을</button>
+    </div>
+
     <!-- 필름 프리셋 + 세기 (필름 ON일 때만 표시) -->
     <div class="filmbar" id="filmBar">
       <div class="pillrow" id="filmPresets" role="group" aria-label="필름 프리셋">
@@ -356,6 +365,22 @@ $("filmPresets").addEventListener("click", (e) => {
 $("filmStrength").addEventListener("input", (e) => {
   filmStrength = e.target.value / 100;
   $("filmStrengthVal").textContent = e.target.value;
+});
+
+// 화이트 밸런스 (촬영 시 굽기): 맑음=중립에 가깝게, 흐림=차분하게, 노을=따뜻하게
+const WB_CAM = { auto: 0.0, "5600": 0.2, "4500": -0.5, "3300": 1.0 };
+let wbCam = 0.0;
+$("wbBtn").addEventListener("click", () => {
+  const bar = $("wbBar");
+  bar.style.display = bar.style.display === "none" ? "flex" : "none";
+});
+$("wbBar").addEventListener("click", (e) => {
+  const btn = e.target.closest(".pill");
+  if (!btn) return;
+  document.querySelectorAll("#wbBar .pill").forEach(b => b.classList.remove("on"));
+  btn.classList.add("on");
+  wbCam = WB_CAM[btn.dataset.wbc];
+  $("wbBtn").classList.toggle("active", wbCam !== 0);
 });
 
 document.querySelector('[aria-label="셔터스피드"]').addEventListener("click", (e) => {
@@ -672,6 +697,10 @@ function computeWarpMap(w, hh) {
   const cx = (L[234].x + L[454].x) / 2;
   const yaw = (L[4].x - cx) / Math.max(faceW, 0.001);
   const noseSign = Math.sign(yaw), yaw01 = Math.min(1, Math.abs(yaw) * 3);
+  // 코·입 실루엣이 있는 세로 구간만 보호 (그 위 관자놀이·그 아래 턱은 보정 허용)
+  const yTop = L[168].y - 0.01;
+  const yBot = L[17].y + (L[152].y - L[17].y) * 0.35;
+  const sstep = (a, b, x) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
 
   const P = FACE_OVAL.map(idx => [L[idx].x, L[idx].y]);
   const GW = [1, 4, 8, 12, 14, 12, 8, 4, 1], gsum = 64;   // 스무딩 가중치 (±4점)
@@ -683,7 +712,8 @@ function computeWarpMap(w, hh) {
     }
     sx /= gsum; sy /= gsum;
     const toNose = Math.max(0, Math.min(1, (P[i][0] - cx) * noseSign / faceW * 2));
-    const s = 0.40 * (1 - toNose * yaw01);   // 튀어나온 정도의 40%만, 코 방향은 보호
+    const vert = sstep(yTop - 0.02, yTop + 0.02, P[i][1]) * (1 - sstep(yBot - 0.02, yBot + 0.02, P[i][1]));
+    const s = 0.40 * (1 - toNose * yaw01 * vert);   // 코~입 높이의 코 방향만 보호, 턱·관자놀이는 보정
     return [(sx - P[i][0]) * s, (sy - P[i][1]) * s];
   });
 
@@ -740,6 +770,7 @@ function camPreviewFrame() {
     blemish: (blemishOn && lastLandmarks) ? 0.60 : 0,
     film: filmOn ? filmStrength : 0,
     fm: FILM_PRESETS[filmPreset],
+    wb: wbCam,
     lens: LENS_MAP[focal],
     warp: contourOn && !!lastLandmarks,
     time: (performance.now() % 10000) / 10000,
@@ -762,6 +793,7 @@ function captureHighRes() {
     warp: contourOn && !!lastLandmarks,
     film: filmOn ? filmStrength : 0,               // 필름 프리셋을 사진에 직접 굽기
     fm: FILM_PRESETS[filmPreset],
+    wb: wbCam,
     time: (performance.now() % 10000) / 10000,     // 그레인은 사진에 고정
   });
 

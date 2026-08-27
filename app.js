@@ -470,21 +470,77 @@ function drawGL(srcTex, opt) {
   gl.drawArrays(gl.TRIANGLES, 0, 3);
 }
 
-// 팔자 라인 위치: 콧방울 옆 → 입꼬리 바깥 (좌우 각각). GL은 상하 반전이라 y는 1-y
-function foldParams() {
-  if (!wrinkleOn || !lastLandmarks) return null;
+// ===== 팔자주름 실측 스캔 =====
+// 랜드마크는 '탐색 상자'만 정하고, 픽셀을 직접 스캔해 실제 골을 찾는다.
+// 각 가로줄에서 양옆보다 가장 어두운 지점(골의 단면)을 찾고,
+// 골 깊이를 가중치로 직선을 적합. 골이 뚜렷하지 않으면(무표정) 적용하지 않는다.
+const foldSrc = document.createElement("canvas");
+const foldCtx = foldSrc.getContext("2d", { willReadFrequently: true });
+let foldState = null;
+let foldTick = 0;
+
+function detectFolds() {
+  if (!wrinkleOn || !lastLandmarks) { foldState = null; return; }
+  if ((foldTick++ % 2) !== 0) return;   // 5Hz면 충분 (CPU 절약)
   const L = lastLandmarks;
-  const faceWuv = Math.abs(L[454].x - L[234].x);
-  const mk = (corner) => {
-    // 시작: 콧방울 바로 옆 (코밑 높이, 코 쪽에 가깝게)
-    // 시각화 결과 반영: 실제 팔자 골은 코~입 라인보다 볼 쪽 바깥에 있음
-    const top = [L[2].x + (corner.x - L[2].x) * 0.75,
-                 L[2].y + (corner.y - L[2].y) * 0.10];
-    const bot = [corner.x + (corner.x - L[13].x) * 0.55,
-                 corner.y - (corner.y - L[2].y) * 0.05];
-    return [top[0], 1 - top[1], bot[0], 1 - bot[1]];
+  const W2 = 180, H2 = Math.round(W2 * video.videoHeight / video.videoWidth);
+  if (foldSrc.width !== W2) { foldSrc.width = W2; foldSrc.height = H2; }
+  foldCtx.drawImage(video, 0, 0, W2, H2);
+  const img = foldCtx.getImageData(0, 0, W2, H2).data;
+  const lum = (x, y) => {
+    x = Math.max(0, Math.min(W2 - 1, x | 0)); y = Math.max(0, Math.min(H2 - 1, y | 0));
+    const i = (y * W2 + x) * 4;
+    return img[i] * 0.299 + img[i + 1] * 0.587 + img[i + 2] * 0.114;
   };
-  return { l: mk(L[61]), r: mk(L[291]), rad: faceWuv * 0.055 };
+  const faceWuv = Math.abs(L[454].x - L[234].x);
+  const d = Math.max(2, faceWuv * W2 * 0.045);   // 골 검사용 수평 오프셋
+
+  const fit = (corner) => {
+    const yTop = L[2].y * H2;
+    const yBot = (corner.y + (corner.y - L[2].y) * 0.25) * H2;
+    const xa = (L[2].x + (corner.x - L[2].x) * 0.45) * W2;
+    const xb = (corner.x + (corner.x - L[13].x) * 1.9) * W2;
+    const x0 = Math.min(xa, xb) | 0, x1 = Math.max(xa, xb) | 0;
+    let sw = 0, sx = 0, sy = 0, syy = 0, sxy = 0;
+    const ROWS = 9;
+    for (let r = 0; r < ROWS; r++) {
+      const y = yTop + (yBot - yTop) * (r + 0.5) / ROWS;
+      let bestV = 0, bestX = -1;
+      for (let x = x0; x <= x1; x++) {
+        const v = (lum(x - d, y) + lum(x + d, y)) * 0.5 - lum(x, y);
+        if (v > bestV) { bestV = v; bestX = x; }
+      }
+      if (bestX < 0 || bestV < 4) continue;   // 이 줄엔 골 없음
+      sw += bestV; sx += bestV * bestX; sy += bestV * y;
+      syy += bestV * y * y; sxy += bestV * bestX * y;
+    }
+    if (sw < 14) return null;                 // 골이 뚜렷하지 않음 → 미적용
+    const mx = sx / sw, my = sy / sw;
+    const varY = syy / sw - my * my;
+    const cov = sxy / sw - mx * my;
+    const a = varY > 0.5 ? cov / varY : 0;    // x = a(y-my)+mx
+    const yA = yTop + (yBot - yTop) * 0.06;
+    const yB = yBot - (yBot - yTop) * 0.06;
+    const XA = (a * (yA - my) + mx) / W2, XB = (a * (yB - my) + mx) / W2;
+    return [XA, 1 - yA / H2, XB, 1 - yB / H2];   // GL 좌표 (y 반전)
+  };
+
+  const nl = fit(L[61]), nr = fit(L[291]);
+  if (!nl && !nr) { foldState = null; return; }
+  const rad = faceWuv * 0.05;
+  const lerp = (o, n) => o ? o.map((v, i) => v + (n[i] - v) * 0.45) : n;
+  foldState = {
+    l: nl ? lerp(foldState?.l, nl) : (foldState?.l ?? nl ?? [0,0,0,0]),
+    r: nr ? lerp(foldState?.r, nr) : (foldState?.r ?? nr ?? [0,0,0,0]),
+    rad,
+  };
+  if (!nl && !foldState.l) foldState.l = [0,0,0,0];
+  if (!nr && !foldState.r) foldState.r = [0,0,0,0];
+}
+
+function foldParams() {
+  if (!wrinkleOn || !foldState) return null;
+  return foldState;
 }
 
 // 윤곽 변위 맵 계산: 실루엣 36점을 가우시안 스무딩한 '매끈한 기준선'을 만들고,
@@ -815,6 +871,7 @@ function buildFaceMaskIfNeeded() {
   buildFaceMask(maskCanvas.width, maskCanvas.height);
   gl.activeTexture(gl.TEXTURE1);
   gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, maskCanvas);
+  detectFolds();   // 팔자주름 실측 스캔 (랜드마크 갱신 주기에 맞춰)
   if (contourOn) {
     computeWarpMap(warpCanvas.width, warpCanvas.height);
     gl.activeTexture(gl.TEXTURE2);

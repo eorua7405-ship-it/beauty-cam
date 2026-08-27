@@ -531,18 +531,28 @@ void main() {
   float sl = dot(res, vec3(0.299, 0.587, 0.114));
   res = mix(vec3(sl), res, uSat);
 
-  // ===== 필름 그레이드 =====
+  // ===== 필름 그레이드: 레퍼런스 사진 실측 기반 프리셋 =====
+  // 측정값: 블랙 4.5% 리프트, 화이트 92% 압축, 하이라이트 웜 크림(R+3%/B-3%),
+  //         섀도 브라운(B-20%), 저채도, 저콘트라스트, 비네트 최소, 고운 그레인
   if (uFilm > 0.005) {
     vec3 f = res;
-    f = f * (1.0 - 0.13 * uFilm) + vec3(0.06 * uFilm);
-    f = mix(f, f * f * (3.0 - 2.0 * f), 0.28 * uFilm);
-    float l = dot(f, vec3(0.299, 0.587, 0.114));
-    f = mix(vec3(l), f, 1.0 - 0.18 * uFilm);
-    f *= vec3(1.0 + 0.045 * uFilm, 1.0 + 0.010 * uFilm, 1.0 - 0.045 * uFilm);
+    float fl = dot(f, vec3(0.299, 0.587, 0.114));
+    // 톤 커브: 페이드 (0→0.045, 1→0.92 로 매핑)
+    f = f * (1.0 - 0.125 * uFilm) + vec3(0.045 * uFilm);
+    // 저채도
+    f = mix(f, vec3(dot(f, vec3(0.299, 0.587, 0.114))), 0.14 * uFilm);
+    // 스플릿 토닝 1: 하이라이트 → 웜 크림
+    float hl = smoothstep(0.55, 0.9, fl);
+    f *= mix(vec3(1.0), vec3(1.032, 1.0, 0.968), hl * uFilm);
+    // 스플릿 토닝 2: 섀도 → 따뜻한 브라운 (블루 억제 — 이 룩의 핵심)
+    float shd = 1.0 - smoothstep(0.1, 0.45, fl);
+    f *= mix(vec3(1.0), vec3(0.99, 1.0, 0.86), shd * uFilm);
+    // 비네트: 레퍼런스는 거의 없음 → 아주 약하게만
     vec2 dv = vUV - 0.5;
-    f *= 1.0 - dot(dv, dv) * 0.65 * uFilm;
+    f *= 1.0 - dot(dv, dv) * 0.22 * uFilm;
+    // 고운 그레인
     float g = fract(sin(dot(gl_FragCoord.xy + vec2(uTime * 617.0), vec2(12.9898, 78.233))) * 43758.5453) - 0.5;
-    f += g * 0.055 * uFilm;
+    f += g * 0.04 * uFilm;
     res = f;
   }
 
@@ -622,14 +632,19 @@ function drawGL(srcTex, opt) {
   gl.drawArrays(gl.TRIANGLES, 0, 3);
 }
 
-// 윤곽 보정 파라미터: 얼굴 중심과 은은한 강도(얼굴 폭의 약 1%)만 전달
+// 윤곽 보정 파라미터: 얼굴 중심 + 은은한 강도.
+// 옆모습에서는 얼굴 중심이 코·입 실루엣 쪽으로 쏠려 코 라인이 일그러지므로,
+// 고개 각도(코끝이 중심에서 벗어난 정도)를 감지해 옆을 볼수록 자동으로 약해진다.
 function contourParams() {
   if (!contourOn || !lastLandmarks) return null;
   const L = lastLandmarks;
   const faceWuv = Math.abs(L[454].x - L[234].x);
   const cx = (L[234].x + L[454].x) / 2;
-  const cy = 1 - (L[10].y + L[152].y) / 2;   // GL 텍스처는 상하 반전
-  return { amt: faceWuv * 0.011, cx, cy };
+  const cy = 1 - (L[10].y + L[152].y) / 2;
+  const yaw = Math.abs(L[4].x - cx) / Math.max(faceWuv, 0.001);  // 정면≈0, 옆모습↑
+  const frontal = Math.max(0, 1 - yaw * 3.5);
+  if (frontal < 0.05) return null;   // 거의 옆모습이면 윤곽 보정 중단
+  return { amt: faceWuv * 0.011 * frontal, cx, cy };
 }
 
 /* ===== 촬영 프리뷰 ===== */

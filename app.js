@@ -320,16 +320,18 @@ void main() {
       float lc = dot(res, lwF);
       float n1 = dot(texture2D(uFrame, uv + perp * pd).rgb, lwF);
       float n2 = dot(texture2D(uFrame, uv - perp * pd).rgb, lwF);
-      float valley = clamp((min(n1, n2) - lc) * 12.0, 0.0, 1.0);   // 수직 양옆보다 어두운가
-      // 선형성 검사: 주름은 '선'이라 진행 방향으로 어두움이 이어지고, 잡티는 '점'이라 끊긴다
+      float target = (n1 + n2) * 0.5;                             // 양옆 피부의 평균 밝기
+      // 골 게이트: 양옆보다 실제로 어두운 곳만 (얕은 골도 감지되도록 문턱 낮춤)
+      float gate = smoothstep(0.012, 0.05, target - lc);
+      // 선형성: 주름은 '선'이라 진행 방향으로도 어둡고, 잡티는 '점'이라 끊긴다
       vec2 fuv = vec2(fdir.x, fdir.y / uAspect);
       float a1 = dot(texture2D(uFrame, uv + fuv * pd).rgb, lwF);
       float a2 = dot(texture2D(uFrame, uv - fuv * pd).rgb, lwF);
-      float lineness = 1.0 - clamp((min(a1, a2) - lc) * 12.0, 0.0, 1.0);  // 진행 방향도 어두워야 1
-      valley *= lineness;
-      float target = (n1 + n2) * 0.5;                              // 양옆 피부의 평균 밝기
-      float lift = clamp(target / max(lc, 0.02), 1.0, 1.6);
-      res = mix(res, res * lift, min(1.0, fw * 1.5) * valley);
+      float lineness = 1.0 - clamp((min(a1, a2) - lc) * 12.0, 0.0, 1.0);
+      // '골 깊이의 절반을 메움': 얕든 깊든 항상 깊이에 비례해 uWrinkle(50%)만큼 채워짐
+      float ratio = min(target / max(lc, 0.02), 1.6);
+      float fillAmt = min(1.0, max(wl, wr2) * 1.3) * gate * lineness * uWrinkle;
+      res *= 1.0 + (ratio - 1.0) * fillAmt;
     }
   }
 
@@ -475,14 +477,14 @@ function foldParams() {
   const faceWuv = Math.abs(L[454].x - L[234].x);
   const mk = (corner) => {
     // 시작: 콧방울 바로 옆 (코밑 높이, 코 쪽에 가깝게)
-    const top = [L[2].x + (corner.x - L[2].x) * 0.50,
-                 L[2].y + (corner.y - L[2].y) * 0.12];   // 콧구멍 바로 아래는 피함
-    // 끝: 입꼬리 위 대각선 방향에서 일찍 멈춤 (입꼬리 미도달)
-    const bot = [corner.x + (corner.x - L[13].x) * 0.05,
-                 corner.y - (corner.y - L[2].y) * 0.22];
+    // 시각화 결과 반영: 실제 팔자 골은 코~입 라인보다 볼 쪽 바깥에 있음
+    const top = [L[2].x + (corner.x - L[2].x) * 0.75,
+                 L[2].y + (corner.y - L[2].y) * 0.10];
+    const bot = [corner.x + (corner.x - L[13].x) * 0.55,
+                 corner.y - (corner.y - L[2].y) * 0.05];
     return [top[0], 1 - top[1], bot[0], 1 - bot[1]];
   };
-  return { l: mk(L[61]), r: mk(L[291]), rad: faceWuv * 0.05 };
+  return { l: mk(L[61]), r: mk(L[291]), rad: faceWuv * 0.055 };
 }
 
 // 윤곽 변위 맵 계산: 실루엣 36점을 가우시안 스무딩한 '매끈한 기준선'을 만들고,

@@ -455,15 +455,6 @@ let glReady = false, glOK = false, uLoc = {};
 
 const VS = `
 attribute vec2 aPos; varying vec2 vUV;
-// 선분(팔자 라인) 주변 캡슐 가중치: 라인에 가까울수록 1
-float foldW(vec2 p, vec4 seg, float rad, float aspect) {
-  vec2 pa = p - seg.xy, ba = seg.zw - seg.xy;
-  pa.y *= aspect; ba.y *= aspect;
-  float t = clamp(dot(pa, ba) / max(dot(ba, ba), 0.000001), 0.0, 1.0);
-  vec2 d = pa - ba * t;
-  return 1.0 - smoothstep(rad * 0.35, rad, length(d));
-}
-
 void main() { vUV = aPos * 0.5 + 0.5; gl_Position = vec4(aPos, 0.0, 1.0); }`;
 
 const FS = `
@@ -500,6 +491,15 @@ uniform float uWrinkle;    // 팔자주름 완화 강도 (0.5 = 주름을 원래
 uniform vec4  uFoldL;      // 왼쪽 팔자 라인 (시작점.xy, 끝점.zw)
 uniform vec4  uFoldR;      // 오른쪽 팔자 라인
 uniform float uFoldRad;    // 팔자 캡슐 반경
+
+// 선분(팔자 라인) 주변 캡슐 가중치: 라인에 가까울수록 1
+float foldW(vec2 p, vec4 seg, float rad, float aspect) {
+  vec2 pa = p - seg.xy, ba = seg.zw - seg.xy;
+  pa.y *= aspect; ba.y *= aspect;
+  float t = clamp(dot(pa, ba) / max(dot(ba, ba), 0.000001), 0.0, 1.0);
+  vec2 d = pa - ba * t;
+  return 1.0 - smoothstep(rad * 0.35, rad, length(d));
+}
 
 void main() {
   vec2 uv = vUV;

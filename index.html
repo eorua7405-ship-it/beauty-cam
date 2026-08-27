@@ -35,7 +35,6 @@
       <button class="pill on" id="tgSkin">피부결</button>
       <button class="pill on" id="tgBlemish">잡티</button>
       <button class="pill on" id="tgContour">윤곽</button>
-      <button class="pill on" id="tgWrinkle">주름</button>
       <button class="pill on" id="tgFilm">필름</button>
     </div>
     <!-- 피부 보정 세기 (튜닝용 슬라이더) -->
@@ -97,6 +96,7 @@
 <div class="screen" id="editScreen">
   <div class="frame-wrap"><canvas class="frame" id="editOut"></canvas></div>
   <div class="edit-panel">
+    <div class="row"><label for="wrinkle">주름 완화</label><input type="range" id="wrinkle" min="0" max="100" value="50" /><output id="wrinkleVal">50</output></div>
     <div class="row"><label for="film">필름 감성</label><input type="range" id="film" min="0" max="100" value="0" /><output id="filmVal">0</output></div>
     <div class="row"><label for="sharp">선명도</label><input type="range" id="sharp" min="0" max="100" value="15" /><output id="sharpVal">15</output></div>
     <div class="row"><label for="contrast">콘트라스트</label><input type="range" id="contrast" min="50" max="150" value="100" /><output id="contrastVal">100</output></div>

@@ -23,7 +23,7 @@ let facing = "user";
 let useFlash = true;
 let focal = 28, hwZoom = false;
 let ssChoice = "auto";
-let skinOn = true, blemishOn = true, contourOn = true, wrinkleOn = true, filmOn = true;
+let skinOn = true, blemishOn = true, contourOn = true, filmOn = true;
 let filmPreset = 0, filmStrength = 0.6;
 let skinAmt = 0.4, blemAmt = 0.6;   // 피부결·잡티 세기 (슬라이더 100 = 최대 강도)
 let mode = "cam";   // cam | edit
@@ -42,7 +42,7 @@ const capCtx = capCanvas.getContext("2d");
 const FACE_OVAL = [10,338,297,332,284,251,389,356,454,323,361,288,397,365,379,378,400,377,152,148,176,149,150,136,172,58,132,93,234,127,162,21,54,103,67,109];
 
 /* ===== 편집 슬라이더 ===== */
-const SLIDERS = ["film","sharp","contrast","sat","rGain","gGain","bGain"];
+const SLIDERS = ["wrinkle","film","sharp","contrast","sat","rGain","gGain","bGain"];
 const S = {};
 for (const id of SLIDERS) {
   S[id] = $(id);
@@ -64,7 +64,6 @@ document.querySelector("#editScreen .seg").addEventListener("click", (e) => {
 $("tgSkin").addEventListener("click", (e) => { skinOn = !skinOn; e.target.classList.toggle("on", skinOn); });
 $("tgBlemish").addEventListener("click", (e) => { blemishOn = !blemishOn; e.target.classList.toggle("on", blemishOn); });
 $("tgContour").addEventListener("click", (e) => { contourOn = !contourOn; e.target.classList.toggle("on", contourOn); });
-$("tgWrinkle").addEventListener("click", (e) => { wrinkleOn = !wrinkleOn; e.target.classList.toggle("on", wrinkleOn); });
 $("tgFilm").addEventListener("click", (e) => {
   filmOn = !filmOn;
   e.target.classList.toggle("on", filmOn);
@@ -461,7 +460,7 @@ function drawGL(srcTex, opt) {
   gl.uniform1f(uLoc.uFmVig, fm.vig);
   gl.uniform1f(uLoc.uLens, opt.lens ?? 0);
   gl.uniform1f(uLoc.uWarpAmt, opt.warp ? 1 : 0);
-  gl.uniform1f(uLoc.uWrinkle, opt.fold ? 0.5 : 0);   // 주름을 원래의 50%로
+  gl.uniform1f(uLoc.uWrinkle, opt.fold ? (opt.wrinkle ?? 0) : 0);
   if (opt.fold) {
     gl.uniform4f(uLoc.uFoldL, opt.fold.l[0], opt.fold.l[1], opt.fold.l[2], opt.fold.l[3]);
     gl.uniform4f(uLoc.uFoldR, opt.fold.r[0], opt.fold.r[1], opt.fold.r[2], opt.fold.r[3]);
@@ -470,22 +469,16 @@ function drawGL(srcTex, opt) {
   gl.drawArrays(gl.TRIANGLES, 0, 3);
 }
 
-// ===== 팔자주름 실측 스캔 =====
-// 랜드마크는 '탐색 상자'만 정하고, 픽셀을 직접 스캔해 실제 골을 찾는다.
-// 각 가로줄에서 양옆보다 가장 어두운 지점(골의 단면)을 찾고,
-// 골 깊이를 가중치로 직선을 적합. 골이 뚜렷하지 않으면(무표정) 적용하지 않는다.
+// ===== 팔자주름 실측 스캔 (후보정 전용) =====
+// 편집 진입 시 촬영된 정지 사진에서 1회 실행. 랜드마크로 탐색 상자를 정하고
+// 픽셀 스캔 → 4단계 검증(암부 제외·직선성·방향·최소 깊이)으로 실제 골을 찾는다.
 const foldSrc = document.createElement("canvas");
 const foldCtx = foldSrc.getContext("2d", { willReadFrequently: true });
-let foldState = null;
-let foldTick = 0;
 
-function detectFolds() {
-  if (!wrinkleOn || !lastLandmarks) { foldState = null; return; }
-  if ((foldTick++ % 2) !== 0) return;   // 5Hz면 충분 (CPU 절약)
-  const L = lastLandmarks;
-  const W2 = 180, H2 = Math.round(W2 * video.videoHeight / video.videoWidth);
-  if (foldSrc.width !== W2) { foldSrc.width = W2; foldSrc.height = H2; }
-  foldCtx.drawImage(video, 0, 0, W2, H2);
+function scanFolds(srcCanvas, L) {
+  const W2 = 220, H2 = Math.round(W2 * srcCanvas.height / srcCanvas.width);
+  foldSrc.width = W2; foldSrc.height = H2;
+  foldCtx.drawImage(srcCanvas, 0, 0, W2, H2);
   const img = foldCtx.getImageData(0, 0, W2, H2).data;
   const lum = (x, y) => {
     x = Math.max(0, Math.min(W2 - 1, x | 0)); y = Math.max(0, Math.min(H2 - 1, y | 0));
@@ -493,29 +486,28 @@ function detectFolds() {
     return img[i] * 0.299 + img[i + 1] * 0.587 + img[i + 2] * 0.114;
   };
   const faceWuv = Math.abs(L[454].x - L[234].x);
-  const d = Math.max(2, faceWuv * W2 * 0.045);   // 골 검사용 수평 오프셋
-
+  const d = Math.max(2, faceWuv * W2 * 0.045);
   const cxF = (L[234].x + L[454].x) / 2;
+
   const fit = (corner) => {
-    const dirOut = Math.sign(corner.x - cxF);              // 얼굴 바깥 방향
-    // 탐색 상자: 콧구멍 아래에서 시작, 바깥 한계는 얼굴 안쪽으로 제한
+    const dirOut = Math.sign(corner.x - cxF);
     const yTop = (L[2].y + (corner.y - L[2].y) * 0.35) * H2;
     const yBot = (corner.y + (corner.y - L[2].y) * 0.30) * H2;
     const xin = (L[2].x + (corner.x - L[2].x) * 0.60) * W2;
-    const lim = cxF + dirOut * faceWuv * 0.42;             // 실루엣 밖 금지
+    const lim = cxF + dirOut * faceWuv * 0.42;
     let xoutU = corner.x + (corner.x - L[13].x) * 1.15;
     xoutU = dirOut > 0 ? Math.min(xoutU, lim) : Math.max(xoutU, lim);
     const x0 = Math.min(xin, xoutU * W2) | 0, x1 = Math.max(xin, xoutU * W2) | 0;
 
     let sw = 0, sx = 0, sy = 0, syy = 0, sxy = 0, cnt = 0;
     const px = [], py = [], pw = [];
-    const ROWS = 9;
+    const ROWS = 11;
     for (let r = 0; r < ROWS; r++) {
       const y = yTop + (yBot - yTop) * (r + 0.5) / ROWS;
       let bestV = 0, bestX = -1;
       for (let x = x0; x <= x1; x++) {
         const lc0 = lum(x, y);
-        if (lc0 < 55) continue;                            // 콧구멍·머리카락 등 극단 암부 제외
+        if (lc0 < 55) continue;
         const v = (lum(x - d, y) + lum(x + d, y)) * 0.5 - lc0;
         if (v > bestV) { bestV = v; bestX = x; }
       }
@@ -525,46 +517,32 @@ function detectFolds() {
       syy += bestV * y * y; sxy += bestV * bestX * y;
       cnt++;
     }
-    if (cnt < 4 || sw < 16) return null;                   // 골이 뚜렷하지 않음
+    if (cnt < 4 || sw < 18) return null;
 
     const mx = sx / sw, my = sy / sw;
     const varY = syy / sw - my * my;
     const cov = sxy / sw - mx * my;
-    const a = varY > 0.5 ? cov / varY : 0;                 // x = a(y-my)+mx
+    const a = varY > 0.5 ? cov / varY : 0;
 
-    // 직선성 검사: 점들이 흩어져 있으면 주름이 아님 (잡음·그림자 조각)
     let se = 0;
     for (let i = 0; i < px.length; i++) {
       const e = px[i] - (a * (py[i] - my) + mx);
       se += pw[i] * e * e;
     }
     if (Math.sqrt(se / sw) > d * 1.3) return null;
-
-    // 방향 검사: 팔자는 아래로 갈수록 바깥쪽 (해부학적 기울기 범위)
     const an = a * dirOut;
     if (an < -0.2 || an > 1.4) return null;
 
     const yA = yTop + (yBot - yTop) * 0.06;
     const yB = yBot - (yBot - yTop) * 0.06;
-    const XA = (a * (yA - my) + mx) / W2, XB = (a * (yB - my) + mx) / W2;
-    return [XA, 1 - yA / H2, XB, 1 - yB / H2];   // GL 좌표 (y 반전)
+    return [(a * (yA - my) + mx) / W2, 1 - yA / H2,
+            (a * (yB - my) + mx) / W2, 1 - yB / H2];
   };
 
-  const nl = fit(L[61]), nr = fit(L[291]);
-  if (!nl && !nr) { foldState = null; return; }
-  const rad = faceWuv * 0.05;
   const Z = [0, 0, 0, 0];
-  const lerp = (o, n) => (o && (o[0] || o[1])) ? o.map((v, i) => v + (n[i] - v) * 0.45) : n;
-  foldState = {
-    l: nl ? lerp(foldState?.l, nl) : Z,   // 기각된 쪽은 즉시 OFF (엉뚱한 잔상 방지)
-    r: nr ? lerp(foldState?.r, nr) : Z,
-    rad,
-  };
-}
-
-function foldParams() {
-  if (!wrinkleOn || !foldState) return null;
-  return foldState;
+  const nl = fit(L[61]), nr = fit(L[291]);
+  if (!nl && !nr) return null;
+  return { l: nl ?? Z, r: nr ?? Z, rad: faceWuv * 0.05 };
 }
 
 // 윤곽 변위 맵 계산: 실루엣 36점을 가우시안 스무딩한 '매끈한 기준선'을 만들고,
@@ -662,7 +640,6 @@ function camPreviewFrame() {
     wb: wbCam,
     lens: LENS_MAP[focal],
     warp: contourOn && !!lastLandmarks,
-    fold: foldParams(),
     time: (performance.now() % 10000) / 10000,
   });
   return glCanvas;
@@ -681,7 +658,6 @@ function captureHighRes() {
     blemish: (blemishOn && lastLandmarks) ? 0.60 * blemAmt : 0,
     lens: LENS_MAP[focal],
     warp: contourOn && !!lastLandmarks,
-    fold: foldParams(),
     film: filmOn ? filmStrength : 0,               // 필름 프리셋을 사진에 직접 굽기
     fm: FILM_PRESETS[filmPreset],
     wb: wbCam,
@@ -702,12 +678,20 @@ function captureHighRes() {
   enterEdit();
 }
 
+let editFold = null;
 function enterEdit() {
   mode = "edit";
   $("camScreen").classList.remove("on");
   $("editScreen").classList.add("on");
   editOut.width = capCanvas.width;
   editOut.height = capCanvas.height;
+  // 정지 사진에서 얼굴을 다시 정밀 인식하고 팔자 골을 스캔 (후보정용)
+  editFold = null;
+  try {
+    const r = landmarker.detectForVideo(capCanvas, performance.now());
+    const EL = r.faceLandmarks?.[0];
+    if (EL) editFold = scanFolds(capCanvas, EL);
+  } catch (e) { /* 얼굴 미검출 시 주름 완화만 비활성 */ }
   editRender();
 }
 
@@ -719,6 +703,8 @@ function editRender() {
     srcW: capCanvas.width, srcH: capCanvas.height,
     film: S.film.value / 100,
     fm: FILM_PRESETS[filmPreset],
+    fold: editFold,
+    wrinkle: S.wrinkle.value / 100,
     sharp: S.sharp.value / 100 * 1.1,
     contrast: S.contrast.value / 100,
     sat: S.sat.value / 100,
@@ -826,12 +812,10 @@ $("camScreen").addEventListener("click", (e) => {
 });
 
 // 상태 배지를 탭하면 내부 상태를 보여줌 (원격 디버깅용)
-let debugFoldUntil = 0;
 statusEl.addEventListener("click", () => {
-  debugFoldUntil = performance.now() + 3500;   // 주름 라인 시각화
   showToast(`GPU:${glOK ? "OK" : "실패"} 얼굴:${lastLandmarks ? "O" : "X"} ` +
     `피부결:${Math.round(skinAmt * 100)} 잡티:${Math.round(blemAmt * 100)} ` +
-    `윤곽:${contourOn ? "on" : "off"} 주름:${wrinkleOn ? "on" : "off"} 필름:${filmOn ? Math.round(filmStrength * 100) : "off"}`);
+    `윤곽:${contourOn ? "on" : "off"} 필름:${filmOn ? Math.round(filmStrength * 100) : "off"}`);
 });
 
 /* ===== 메인 루프 ===== */
@@ -866,27 +850,6 @@ function loop(ts) {
   if (facing === "user") { ctx.translate(w, 0); ctx.scale(-1, 1); }
   ctx.drawImage(src, sx, sy, sw, sh, 0, 0, w, h);
 
-  // 진단 모드: 주름 캡슐 위치를 화면에 표시 (상태 배지 탭 후 3.5초)
-  if (performance.now() < debugFoldUntil) {
-    const fp = foldParams();
-    if (fp) {
-      ctx.strokeStyle = "rgba(255,80,120,0.95)";
-      ctx.lineWidth = Math.max(2, fp.rad * w * 2 / cropF);
-      ctx.lineCap = "round";
-      ctx.globalAlpha = 0.45;
-      for (const seg of [fp.l, fp.r]) {
-        if (!seg[0] && !seg[1]) continue;   // 기각된 쪽은 표시 안 함
-        // GL 좌표(y 반전)를 화면 좌표로 되돌리고 화각 크롭 반영
-        const X = (u) => (u * w - sx) / cropF;
-        const Y = (v) => ((1 - v) * h - sy) / cropF;
-        ctx.beginPath();
-        ctx.moveTo(X(seg[0]), Y(seg[1]));
-        ctx.lineTo(X(seg[2]), Y(seg[3]));
-        ctx.stroke();
-      }
-      ctx.globalAlpha = 1;
-    }
-  }
   ctx.restore();
 }
 
@@ -896,7 +859,6 @@ function buildFaceMaskIfNeeded() {
   buildFaceMask(maskCanvas.width, maskCanvas.height);
   gl.activeTexture(gl.TEXTURE1);
   gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, maskCanvas);
-  detectFolds();   // 팔자주름 실측 스캔 (랜드마크 갱신 주기에 맞춰)
   if (contourOn) {
     computeWarpMap(warpCanvas.width, warpCanvas.height);
     gl.activeTexture(gl.TEXTURE2);

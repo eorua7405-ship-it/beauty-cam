@@ -17,23 +17,23 @@
   }
   * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
   html, body { height: 100%; overflow: hidden; }
-  body { background: var(--bg); color: var(--text); font-family: "Noto Sans KR", system-ui, sans-serif; }
+  body { background: #000; color: var(--text); font-family: "Noto Sans KR", system-ui, sans-serif; }
 
-  /* ===== 전체 화면 뷰파인더 ===== */
-  #stage { position: fixed; inset: 0; background: #000; }
-  #out {
+  .screen { position: fixed; inset: 0; display: none; }
+  .screen.on { display: block; }
+
+  canvas.frame {
     position: absolute; inset: 0;
     width: 100%; height: 100%;
-    object-fit: contain;   /* 카메라 프레임을 자르지 않고 그대로 표시 (확대 현상 해결) */
-    display: none;
+    object-fit: contain;
   }
-  #stage.live #out { display: block; }
-  #stage.live .placeholder { display: none; }
 
+  /* ===== 시작 화면 ===== */
   .placeholder {
     position: absolute; inset: 0;
     display: flex; flex-direction: column; align-items: center; justify-content: center;
     gap: 16px; text-align: center; padding: 24px;
+    background: var(--bg);
   }
   .placeholder h1 { font-size: 22px; font-weight: 700; }
   .placeholder h1 .dot { color: var(--accent); }
@@ -53,16 +53,13 @@
     font-size: 15px; font-weight: 700;
     padding: 13px 30px; border-radius: 999px; cursor: pointer;
   }
-  #startBtn:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
 
-  /* ===== 상단 오버레이 ===== */
+  /* ===== 공통 오버레이 요소 ===== */
   .topbar {
     position: absolute; top: 0; left: 0; right: 0;
     padding: calc(env(safe-area-inset-top, 0px) + 12px) 14px 10px;
-    display: none; align-items: center; gap: 8px;
-    z-index: 10;
+    display: flex; align-items: center; gap: 8px; z-index: 10;
   }
-  #stage.live .topbar { display: flex; }
   .status {
     background: var(--glass); backdrop-filter: blur(8px);
     border: 1px solid var(--glass-line);
@@ -82,41 +79,83 @@
     cursor: pointer; display: flex; align-items: center; justify-content: center;
   }
   .icon-btn.active { background: var(--accent); color: #26101a; border-color: var(--accent); }
-  .icon-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
-  /* ===== 초점 링 ===== */
+  .bottom {
+    position: absolute; left: 0; right: 0; bottom: 0;
+    padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 14px);
+    display: flex; flex-direction: column; align-items: center; gap: 10px;
+    z-index: 10;
+  }
+
+  .pillrow {
+    display: flex; gap: 6px;
+    background: var(--glass); backdrop-filter: blur(8px);
+    border: 1px solid var(--glass-line);
+    border-radius: 999px; padding: 4px;
+  }
+  .pill {
+    border: none; background: transparent;
+    color: var(--text-dim); font-family: inherit;
+    font-size: 12px; font-weight: 500;
+    padding: 8px 13px; border-radius: 999px; cursor: pointer;
+  }
+  .pill.on { background: var(--accent); color: #26101a; font-weight: 700; }
+
+  #shotBtn {
+    width: 72px; height: 72px; border-radius: 50%;
+    background: rgba(255,255,255,0.14);
+    border: 4px solid #fff; cursor: pointer; padding: 0;
+    display: flex; align-items: center; justify-content: center;
+  }
+  #shotBtn::after { content:""; width: 54px; height: 54px; border-radius: 50%; background: #fff; transition: transform .1s; }
+  #shotBtn:active::after { transform: scale(0.85); }
+  #shotBtn:disabled { opacity: 0.4; }
+
   #focusRing {
     position: absolute; width: 64px; height: 64px;
     border: 2px solid #fff; border-radius: 50%;
-    transform: translate(-50%, -50%) scale(1.4);
+    transform: translate(-50%,-50%) scale(1.4);
     opacity: 0; pointer-events: none; z-index: 5;
   }
   #focusRing.go { animation: focusAnim 0.7s ease; }
   @keyframes focusAnim {
     0% { opacity: 0; transform: translate(-50%,-50%) scale(1.5); }
-    30% { opacity: 1; transform: translate(-50%,-50%) scale(1.0); }
-    100% { opacity: 0; transform: translate(-50%,-50%) scale(1.0); }
+    30% { opacity: 1; transform: translate(-50%,-50%) scale(1); }
+    100% { opacity: 0; transform: translate(-50%,-50%) scale(1); }
   }
 
-  /* ===== 하단 오버레이 ===== */
-  .bottom {
-    position: absolute; left: 0; right: 0; bottom: 0;
-    padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 14px);
-    display: none; flex-direction: column; align-items: center; gap: 12px;
-    z-index: 10;
-  }
-  #stage.live .bottom { display: flex; }
-
-  /* 설정 패널 (그룹 버튼 누르면 올라옴) */
-  .panel {
-    width: min(94vw, 440px);
-    background: var(--glass); backdrop-filter: blur(12px);
+  #toast {
+    position: fixed; left: 50%; top: 18%;
+    transform: translateX(-50%);
+    background: var(--glass); backdrop-filter: blur(8px);
     border: 1px solid var(--glass-line);
-    border-radius: var(--radius);
-    padding: 14px 16px;
-    display: none; flex-direction: column; gap: 11px;
+    font-size: 13px; padding: 9px 16px; border-radius: 999px;
+    opacity: 0; pointer-events: none; transition: opacity .2s; z-index: 60;
   }
-  .panel.open { display: flex; }
+  #toast.show { opacity: 1; }
+
+  #screenFlash {
+    position: fixed; inset: 0; background: #fff;
+    opacity: 0; pointer-events: none;
+    transition: opacity .1s; z-index: 100;
+  }
+  #screenFlash.on { opacity: 1; }
+
+  /* ===== 편집 화면 ===== */
+  #editScreen { background: var(--bg); }
+  #editScreen .frame-wrap {
+    position: absolute; top: 0; left: 0; right: 0; bottom: 46%;
+  }
+  #editScreen .frame { position: absolute; inset: 8px; width: calc(100% - 16px); height: calc(100% - 16px); }
+  .edit-panel {
+    position: absolute; left: 0; right: 0; bottom: 0; height: 45%;
+    background: var(--glass); backdrop-filter: blur(12px);
+    border-top: 1px solid var(--glass-line);
+    border-radius: 18px 18px 0 0;
+    padding: 16px 18px calc(env(safe-area-inset-bottom, 0px) + 14px);
+    overflow-y: auto;
+    display: flex; flex-direction: column; gap: 11px;
+  }
   .row { display: flex; align-items: center; gap: 10px; }
   .row label { font-size: 13px; font-weight: 500; flex: 0 0 70px; }
   .row output { font-size: 12px; color: var(--accent); flex: 0 0 34px; text-align: right; font-variant-numeric: tabular-nums; }
@@ -128,15 +167,7 @@
     appearance: none; width: 18px; height: 18px; border-radius: 50%;
     background: var(--accent); border: 3px solid #1a1a21;
   }
-  input[type="range"]:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; }
   .seg { display: flex; gap: 6px; }
-  .seg.focal {
-    background: var(--glass); backdrop-filter: blur(8px);
-    border: 1px solid var(--glass-line);
-    border-radius: 999px; padding: 4px; gap: 4px;
-  }
-  .seg.focal .seg-btn { border: none; background: transparent; border-radius: 999px; padding: 7px 14px; }
-  .seg.focal .seg-btn.on { background: var(--accent); color: #26101a; font-weight: 700; }
   .seg-btn {
     flex: 1;
     background: rgba(255,255,255,0.08); border: 1px solid var(--glass-line);
@@ -145,229 +176,218 @@
     padding: 9px 4px; border-radius: 10px; cursor: pointer;
   }
   .seg-btn.on { background: var(--accent); border-color: var(--accent); color: #26101a; font-weight: 700; }
-  .toggle-row { display: flex; align-items: center; justify-content: space-between; }
-  .toggle-row span { font-size: 13px; font-weight: 500; }
-  .switch { position: relative; width: 42px; height: 24px; flex: 0 0 auto; }
-  .switch input { opacity: 0; width: 100%; height: 100%; position: absolute; cursor: pointer; z-index: 1; }
-  .switch .track { position: absolute; inset: 0; border-radius: 999px; background: rgba(255,255,255,0.14); transition: background .15s; }
-  .switch .track::after { content:""; position:absolute; top:2px; left:2px; width:18px; height:18px; border-radius:50%; background:var(--text-dim); transition:all .15s; }
-  .switch input:checked + .track { background: var(--accent); }
-  .switch input:checked + .track::after { left: 20px; background: #26101a; }
-
-  /* 그룹 버튼 줄 */
-  .dock { display: flex; gap: 8px; }
-  .dock-btn {
-    background: var(--glass); backdrop-filter: blur(8px);
-    border: 1px solid var(--glass-line);
-    color: var(--text-dim); font-family: inherit;
-    font-size: 13px; font-weight: 500;
-    padding: 9px 16px; border-radius: 999px; cursor: pointer;
+  .edit-actions { display: flex; gap: 10px; margin-top: 4px; }
+  .edit-actions button {
+    flex: 1; font-family: inherit; font-size: 14px; font-weight: 700;
+    padding: 13px; border-radius: 999px; cursor: pointer;
   }
-  .dock-btn.on { background: var(--accent); border-color: var(--accent); color: #26101a; font-weight: 700; }
-  .dock-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-
-  /* 셔터 버튼 */
-  #shotBtn {
-    width: 72px; height: 72px; border-radius: 50%;
-    background: rgba(255,255,255,0.14);
-    border: 4px solid #fff;
-    cursor: pointer; padding: 0;
-    display: flex; align-items: center; justify-content: center;
-  }
-  #shotBtn::after {
-    content: ""; width: 54px; height: 54px; border-radius: 50%;
-    background: #fff; transition: transform 0.1s ease;
-  }
-  #shotBtn:active::after { transform: scale(0.85); }
-  #shotBtn:disabled { opacity: 0.4; }
-  #shotBtn:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
-
-  /* 화면 플래시 */
-  #screenFlash {
-    position: fixed; inset: 0; background: #fff;
-    opacity: 0; pointer-events: none;
-    transition: opacity 0.1s ease; z-index: 100;
-  }
-  #screenFlash.on { opacity: 1; }
-
-  @media (prefers-reduced-motion: reduce) {
-    #focusRing.go { animation-duration: 0.01s; }
-  }
+  #saveBtn { background: var(--accent); color: #26101a; border: none; }
+  #retakeBtn { background: transparent; color: var(--text); border: 1px solid var(--glass-line); }
 </style>
 </head>
 <body>
 
-<div id="stage">
-  <div class="placeholder">
+<!-- ===== 촬영 화면 ===== -->
+<div class="screen on" id="camScreen">
+  <div class="placeholder" id="placeholder">
     <div class="lens" aria-hidden="true"></div>
     <h1>필름 카메라<span class="dot">.</span></h1>
-    <p>필름 룩 · GPU 피부 보정 · 매뉴얼 컨트롤<br />
-    모든 처리는 내 기기 안에서만 이루어져요.</p>
+    <p>필름 룩으로 찍고, 세부 보정은 찍은 뒤에.<br />모든 처리는 내 기기 안에서만 이루어져요.</p>
     <button id="startBtn">카메라 켜기</button>
   </div>
 
-  <canvas id="out"></canvas>
+  <canvas class="frame" id="out" style="display:none"></canvas>
 
-  <div class="topbar">
+  <div class="topbar" id="camTop" style="display:none">
     <div class="status" id="status"><span class="led"></span><span id="statusText">얼굴 찾는 중…</span></div>
-    <button class="icon-btn active" id="flashBtn" title="화면 플래시" aria-label="화면 플래시 켜짐">⚡</button>
-    <button class="icon-btn" id="flipBtn" title="카메라 전환" aria-label="전·후면 카메라 전환">↺</button>
+    <button class="icon-btn active" id="flashBtn" title="화면 플래시">⚡</button>
+    <button class="icon-btn" id="flipBtn" title="카메라 전환">↺</button>
   </div>
 
   <div id="focusRing" aria-hidden="true"></div>
 
-  <div class="bottom">
-    <!-- 설정 패널들 -->
-    <div class="panel" data-panel="skin">
-      <div class="row"><label for="smooth">부드럽게</label><input type="range" id="smooth" min="0" max="100" value="30" /><output id="smoothVal">30</output></div>
-      <div class="row"><label for="blemish">잡티 제거</label><input type="range" id="blemish" min="0" max="100" value="65" /><output id="blemishVal">65</output></div>
-      <div class="row"><label for="skinShift">피부 톤</label><input type="range" id="skinShift" min="-50" max="50" value="0" /><output id="skinShiftVal">0</output></div>
-      <div class="toggle-row"><span>얼굴 인식 점 보기</span><div class="switch"><input type="checkbox" id="showMesh" /><span class="track"></span></div></div>
+  <div class="bottom" id="camBottom" style="display:none">
+    <!-- 보정 ON/OFF -->
+    <div class="pillrow" role="group" aria-label="보정">
+      <button class="pill on" id="tgSkin">피부결</button>
+      <button class="pill on" id="tgBlemish">잡티</button>
+      <button class="pill on" id="tgContour">윤곽</button>
     </div>
-    <div class="panel" data-panel="look">
-      <div class="row"><label for="film">필름 감성</label><input type="range" id="film" min="0" max="100" value="50" /><output id="filmVal">50</output></div>
-      <div class="row"><label for="sharp">선명도</label><input type="range" id="sharp" min="0" max="100" value="15" /><output id="sharpVal">15</output></div>
+    <!-- 셔터스피드 -->
+    <div class="pillrow" role="group" aria-label="셔터스피드">
+      <button class="pill on" data-ss="auto">SS 오토</button>
+      <button class="pill" data-ss="30">1/30</button>
+      <button class="pill" data-ss="60">1/60</button>
+      <button class="pill" data-ss="125">1/125</button>
+      <button class="pill" data-ss="250">1/250</button>
     </div>
-    <div class="panel" data-panel="color">
-      <div class="row"><label for="contrast">콘트라스트</label><input type="range" id="contrast" min="50" max="150" value="100" /><output id="contrastVal">100</output></div>
-      <div class="row"><label for="sat">채도</label><input type="range" id="sat" min="0" max="200" value="100" /><output id="satVal">100</output></div>
-      <div class="row"><label for="rGain">레드</label><input type="range" id="rGain" min="70" max="130" value="100" /><output id="rGainVal">100</output></div>
-      <div class="row"><label for="gGain">그린</label><input type="range" id="gGain" min="70" max="130" value="100" /><output id="gGainVal">100</output></div>
-      <div class="row"><label for="bGain">블루</label><input type="range" id="bGain" min="70" max="130" value="100" /><output id="bGainVal">100</output></div>
+    <!-- 화각 -->
+    <div class="pillrow" role="group" aria-label="화각">
+      <button class="pill on" data-focal="28">28mm</button>
+      <button class="pill" data-focal="35">35mm</button>
+      <button class="pill" data-focal="50">50mm</button>
     </div>
-    <div class="panel" data-panel="wb">
-      <div class="seg" role="group" aria-label="화이트 밸런스">
-        <button class="seg-btn on" data-wb="auto">오토</button>
-        <button class="seg-btn" data-wb="3300">3300K</button>
-        <button class="seg-btn" data-wb="4400">4400K</button>
-        <button class="seg-btn" data-wb="5600">5600K</button>
-      </div>
-    </div>
-
-    <!-- 화각 선택 -->
-    <div class="seg focal" id="focalSeg" role="group" aria-label="화각">
-      <button class="seg-btn on" data-focal="28">28mm</button>
-      <button class="seg-btn" data-focal="35">35mm</button>
-      <button class="seg-btn" data-focal="50">50mm</button>
-    </div>
-
-    <!-- 그룹 버튼 -->
-    <div class="dock" role="group" aria-label="설정 그룹">
-      <button class="dock-btn" data-group="skin">피부</button>
-      <button class="dock-btn" data-group="look">룩</button>
-      <button class="dock-btn" data-group="color">색</button>
-      <button class="dock-btn" data-group="wb">WB</button>
-    </div>
-
     <button id="shotBtn" disabled aria-label="사진 찍기"></button>
   </div>
 </div>
 
+<!-- ===== 편집 화면 ===== -->
+<div class="screen" id="editScreen">
+  <div class="frame-wrap"><canvas class="frame" id="editOut"></canvas></div>
+  <div class="edit-panel">
+    <div class="row"><label for="film">필름 감성</label><input type="range" id="film" min="0" max="100" value="60" /><output id="filmVal">60</output></div>
+    <div class="row"><label for="sharp">선명도</label><input type="range" id="sharp" min="0" max="100" value="15" /><output id="sharpVal">15</output></div>
+    <div class="row"><label for="contrast">콘트라스트</label><input type="range" id="contrast" min="50" max="150" value="100" /><output id="contrastVal">100</output></div>
+    <div class="row"><label for="sat">채도</label><input type="range" id="sat" min="0" max="200" value="100" /><output id="satVal">100</output></div>
+    <div class="seg" role="group" aria-label="화이트 밸런스">
+      <button class="seg-btn on" data-wb="auto">오토</button>
+      <button class="seg-btn" data-wb="3300">3300K</button>
+      <button class="seg-btn" data-wb="4400">4400K</button>
+      <button class="seg-btn" data-wb="5600">5600K</button>
+    </div>
+    <div class="row"><label for="rGain">레드</label><input type="range" id="rGain" min="70" max="130" value="100" /><output id="rGainVal">100</output></div>
+    <div class="row"><label for="gGain">그린</label><input type="range" id="gGain" min="70" max="130" value="100" /><output id="gGainVal">100</output></div>
+    <div class="row"><label for="bGain">블루</label><input type="range" id="bGain" min="70" max="130" value="100" /><output id="bGainVal">100</output></div>
+    <div class="edit-actions">
+      <button id="retakeBtn">다시 찍기</button>
+      <button id="saveBtn">저장</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast" role="status"></div>
 <div id="screenFlash"></div>
 
 <script type="module">
 import { FaceLandmarker, FilesetResolver } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14";
 
 const $ = (id) => document.getElementById(id);
-const stage = $("stage");
-const startBtn = $("startBtn");
-const out = $("out");
-const ctx = out.getContext("2d");
-const statusEl = $("status");
-const statusText = $("statusText");
-const showMeshEl = $("showMesh");
-const flashBtn = $("flashBtn");
-const flipBtn = $("flipBtn");
-const shotBtn = $("shotBtn");
-const screenFlash = $("screenFlash");
-const focusRing = $("focusRing");
+const out = $("out"), ctx = out.getContext("2d");
+const editOut = $("editOut"), editCtx = editOut.getContext("2d");
+const statusEl = $("status"), statusText = $("statusText");
+const screenFlash = $("screenFlash"), focusRing = $("focusRing"), toast = $("toast");
 
-// 슬라이더 자동 연결
-const SLIDERS = ["smooth","blemish","skinShift","film","sharp","contrast","sat","rGain","gGain","bGain"];
-const S = {};
-for (const id of SLIDERS) {
-  S[id] = $(id);
-  const val = $(id + "Val");
-  S[id].addEventListener("input", () => val.textContent = S[id].value);
+let toastTimer = 0;
+function showToast(msg) {
+  toast.textContent = msg;
+  toast.classList.add("show");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => toast.classList.remove("show"), 1800);
 }
 
-// 설정 패널 열기/닫기
-document.querySelector(".dock").addEventListener("click", (e) => {
-  const btn = e.target.closest(".dock-btn");
-  if (!btn) return;
-  const group = btn.dataset.group;
-  const wasOn = btn.classList.contains("on");
-  document.querySelectorAll(".dock-btn").forEach(b => b.classList.remove("on"));
-  document.querySelectorAll(".panel").forEach(p => p.classList.remove("open"));
-  if (!wasOn) {
-    btn.classList.add("on");
-    document.querySelector('.panel[data-panel="' + group + '"]').classList.add("open");
-  }
-});
-
-// 화각: 28mm 기준. 하드웨어 줌 지원 시 진짜 줌, 미지원 시 디지털 크롭
-let focal = 28;
-let hwZoom = false;
-async function applyFocal() {
-  hwZoom = false;
-  const track = video.srcObject?.getVideoTracks()[0];
-  const caps = track?.getCapabilities?.();
-  if (caps && caps.zoom) {
-    const z = Math.min(caps.zoom.max, Math.max(caps.zoom.min, caps.zoom.min * (focal / 28)));
-    try {
-      await track.applyConstraints({ advanced: [{ zoom: z }] });
-      hwZoom = true;
-    } catch (e) { hwZoom = false; }
-  }
-}
-$("focalSeg").addEventListener("click", (e) => {
-  const btn = e.target.closest(".seg-btn");
-  if (!btn) return;
-  document.querySelectorAll("#focalSeg .seg-btn").forEach(b => b.classList.remove("on"));
-  btn.classList.add("on");
-  focal = Number(btn.dataset.focal);
-  applyFocal();
-});
-
-// 화이트 밸런스
-const WB_MAP = { auto: 0.0, "3300": -1.0, "4400": 0.35, "5600": 1.0 };
-let wbValue = 0.0;
-document.querySelector('.panel[data-panel="wb"]').addEventListener("click", (e) => {
-  const btn = e.target.closest(".seg-btn");
-  if (!btn) return;
-  document.querySelectorAll(".seg-btn").forEach(b => b.classList.remove("on"));
-  btn.classList.add("on");
-  wbValue = WB_MAP[btn.dataset.wb];
-});
-
-// 화면 플래시 토글
+/* ===== 상태 ===== */
+let facing = "user";
 let useFlash = true;
-flashBtn.addEventListener("click", () => {
-  useFlash = !useFlash;
-  flashBtn.classList.toggle("active", useFlash);
-  flashBtn.setAttribute("aria-label", useFlash ? "화면 플래시 켜짐" : "화면 플래시 꺼짐");
-});
+let focal = 28, hwZoom = false;
+let ssChoice = "auto";
+let skinOn = true, blemishOn = true, contourOn = true;
+let mode = "cam";   // cam | edit
+let landmarker = null, lastLandmarks = null;
 
 const video = document.createElement("video");
 video.playsInline = true; video.muted = true;
 
 const maskCanvas = document.createElement("canvas");
 const maskCtx = maskCanvas.getContext("2d");
+const capCanvas = document.createElement("canvas");   // 고해상도 촬영 결과 (편집 원본)
+const capCtx = capCanvas.getContext("2d");
 
 const FACE_OVAL = [10,338,297,332,284,251,389,356,454,323,361,288,397,365,379,378,400,377,152,148,176,149,150,136,172,58,132,93,234,127,162,21,54,103,67,109];
 
-let landmarker = null;
-let lastLandmarks = null;
-let facing = "user";   // user = 전면(미러링), environment = 후면
+/* ===== 편집 슬라이더 ===== */
+const SLIDERS = ["film","sharp","contrast","sat","rGain","gGain","bGain"];
+const S = {};
+for (const id of SLIDERS) {
+  S[id] = $(id);
+  const val = $(id + "Val");
+  S[id].addEventListener("input", () => { val.textContent = S[id].value; if (mode === "edit") editRender(); });
+}
+const WB_MAP = { auto: 0.0, "3300": -1.0, "4400": 0.35, "5600": 1.0 };
+let wbValue = 0.0;
+document.querySelector("#editScreen .seg").addEventListener("click", (e) => {
+  const btn = e.target.closest(".seg-btn");
+  if (!btn) return;
+  document.querySelectorAll("#editScreen .seg-btn").forEach(b => b.classList.remove("on"));
+  btn.classList.add("on");
+  wbValue = WB_MAP[btn.dataset.wb];
+  editRender();
+});
+
+/* ===== 촬영 화면 컨트롤 ===== */
+$("tgSkin").addEventListener("click", (e) => { skinOn = !skinOn; e.target.classList.toggle("on", skinOn); });
+$("tgBlemish").addEventListener("click", (e) => { blemishOn = !blemishOn; e.target.classList.toggle("on", blemishOn); });
+$("tgContour").addEventListener("click", (e) => { contourOn = !contourOn; e.target.classList.toggle("on", contourOn); });
+
+document.querySelector('[aria-label="셔터스피드"]').addEventListener("click", (e) => {
+  const btn = e.target.closest(".pill");
+  if (!btn) return;
+  e.currentTarget.querySelectorAll(".pill").forEach(b => b.classList.remove("on"));
+  btn.classList.add("on");
+  ssChoice = btn.dataset.ss;
+  applyShutter();
+});
+
+document.querySelector('[aria-label="화각"]').addEventListener("click", (e) => {
+  const btn = e.target.closest(".pill");
+  if (!btn) return;
+  e.currentTarget.querySelectorAll(".pill").forEach(b => b.classList.remove("on"));
+  btn.classList.add("on");
+  focal = Number(btn.dataset.focal);
+  applyFocal();
+});
+
+$("flashBtn").addEventListener("click", (e) => {
+  useFlash = !useFlash;
+  e.currentTarget.classList.toggle("active", useFlash);
+});
+
+/* ===== 카메라 하드웨어 제어 ===== */
+function track() { return video.srcObject?.getVideoTracks()[0]; }
+
+async function applyFocal() {
+  hwZoom = false;
+  const t = track(); const caps = t?.getCapabilities?.();
+  if (caps && caps.zoom) {
+    const z = Math.min(caps.zoom.max, Math.max(caps.zoom.min, caps.zoom.min * (focal / 28)));
+    try { await t.applyConstraints({ advanced: [{ zoom: z }] }); hwZoom = true; } catch {}
+  }
+}
+
+async function applyShutter() {
+  const t = track(); const caps = t?.getCapabilities?.();
+  if (ssChoice === "auto") {
+    if (caps?.exposureMode?.includes("continuous"))
+      t.applyConstraints({ advanced: [{ exposureMode: "continuous" }] }).catch(() => {});
+    return;
+  }
+  if (caps?.exposureTime && caps.exposureMode?.includes("manual")) {
+    // exposureTime 단위: 100마이크로초. 1/60초 = 10000/60
+    const want = 10000 / Number(ssChoice);
+    const v = Math.min(caps.exposureTime.max, Math.max(caps.exposureTime.min, want));
+    try {
+      await t.applyConstraints({ advanced: [{ exposureMode: "manual", exposureTime: v }] });
+    } catch { showToast("이 기기는 수동 셔터를 지원하지 않아요"); }
+  } else {
+    showToast("이 기기는 수동 셔터를 지원하지 않아요 (오토 유지)");
+  }
+}
+
+function tryFocus(m) {
+  const t = track();
+  if (!t?.getCapabilities) return;
+  const caps = t.getCapabilities();
+  if (!caps.focusMode) return;
+  const mm = caps.focusMode.includes(m) ? m : caps.focusMode.includes("continuous") ? "continuous" : null;
+  if (mm) t.applyConstraints({ advanced: [{ focusMode: mm }] }).catch(() => {});
+}
 
 /* ===== WebGL 파이프라인 ===== */
 const glCanvas = document.createElement("canvas");
-const gl = glCanvas.getContext("webgl", { premultipliedAlpha: false });
+const gl = glCanvas.getContext("webgl", { premultipliedAlpha: false, preserveDrawingBuffer: true });
 let glReady = false, glOK = false, uLoc = {};
 
 const VS = `
-attribute vec2 aPos;
-varying vec2 vUV;
+attribute vec2 aPos; varying vec2 vUV;
 void main() { vUV = aPos * 0.5 + 0.5; gl_Position = vec4(aPos, 0.0, 1.0); }`;
 
 const FS = `
@@ -379,11 +399,11 @@ precision mediump float;
 varying vec2 vUV;
 uniform sampler2D uFrame;
 uniform sampler2D uMask;
-uniform vec2  uTexel;
+uniform vec2  uTexel;      // 소스 1픽셀 크기
+uniform float uAspect;     // 세로/가로 비율
 uniform float uRadius;
 uniform float uSmooth;
 uniform float uBlemish;
-uniform float uSkinShift;
 uniform float uFilm;
 uniform float uSharp;
 uniform float uContrast;
@@ -391,13 +411,40 @@ uniform float uSat;
 uniform vec3  uRGB;
 uniform float uWB;
 uniform float uTime;
+uniform float uLens;       // 화각별 렌즈 왜곡 (28mm 배럴 ~ 50mm 평탄)
+uniform float uWarpAmt;    // 윤곽 보정 강도
+uniform vec2  uWarpPL;     // 왼쪽 턱 포인트
+uniform vec2  uWarpPR;     // 오른쪽 턱 포인트
+uniform vec2  uWarpDL;     // 왼쪽 바깥 방향
+uniform vec2  uWarpDR;     // 오른쪽 바깥 방향
+uniform float uWarpRad;    // 영향 반경 제곱
 
 void main() {
-  vec3 c = texture2D(uFrame, vUV).rgb;
-  vec3 res = c;
-  float m = texture2D(uMask, vUV).a;
+  vec2 uv = vUV;
 
-  // ===== 1. 피부 보정 (얼굴 마스크 안에서만) =====
+  // ===== 윤곽 보정 (Evoto 스타일 은은한 V라인) =====
+  // 턱 근처 픽셀의 샘플 위치를 얼굴 바깥쪽으로 살짝 밀면 → 턱선이 안쪽으로 들어와 보임
+  if (uWarpAmt > 0.0001) {
+    vec2 dL = uv - uWarpPL; dL.y *= uAspect;
+    uv += uWarpDL * exp(-dot(dL, dL) / uWarpRad) * uWarpAmt;
+    vec2 dR = uv - uWarpPR; dR.y *= uAspect;
+    uv += uWarpDR * exp(-dot(dR, dR) / uWarpRad) * uWarpAmt;
+  }
+
+  // ===== 화각 렌즈 느낌: 28mm 배럴 왜곡(가장자리 볼록) ~ 50mm 평탄 =====
+  if (abs(uLens) > 0.001) {
+    vec2 cc = uv - 0.5; cc.y *= uAspect;
+    float r2 = dot(cc, cc);
+    vec2 cd = cc * (1.0 + uLens * r2);
+    cd.y /= uAspect;
+    uv = 0.5 + cd;
+  }
+
+  vec3 c = texture2D(uFrame, uv).rgb;
+  vec3 res = c;
+  float m = texture2D(uMask, uv).a;
+
+  // ===== 피부 보정 (얼굴 마스크 안에서만) =====
   if (m > 0.01 && (uSmooth > 0.01 || uBlemish > 0.01)) {
     float sigmaR = 0.07 + 0.07 * uSmooth;
     vec3 sum = c; float wsum = 1.0; vec3 plain = c;
@@ -405,7 +452,7 @@ void main() {
       float ang = 0.3926991 * float(i);
       float ring = (mod(float(i), 2.0) < 1.0) ? 1.0 : 0.55;
       vec2 off = vec2(cos(ang), sin(ang)) * uRadius * ring * uTexel;
-      vec3 s = texture2D(uFrame, vUV + off).rgb;
+      vec3 s = texture2D(uFrame, uv + off).rgb;
       float d = length(s - c);
       float wr = exp(-(d * d) / (2.0 * sigmaR * sigmaR));
       sum += s * wr; wsum += wr; plain += s;
@@ -414,7 +461,6 @@ void main() {
     vec3 avg = plain / 17.0;
     vec3 hi = c - base;
 
-    // 잡티: '적당히' 어두운 점만 (그림자·콧구멍은 보호)
     float darker = avg.g - c.g;
     float th = 0.045 - 0.018 * uBlemish;
     float spot = smoothstep(th * 0.5, th, darker);
@@ -430,7 +476,6 @@ void main() {
     vec3 r = mix(c, avg, spot);
     r = mix(r, avg, glare);
 
-    // 구조 보호 스무딩 — 음영·윤곽 라인은 건드리지 않음
     float dev = abs(avg.g - c.g);
     float structural = smoothstep(0.035, 0.11, dev);
     r = mix(r, base, uSmooth * 0.45 * (1.0 - structural));
@@ -439,32 +484,24 @@ void main() {
     res = mix(c, r, m);
   }
 
-  // ===== 2. 피부 톤 (마스크 안에서만: - 차갑게 / + 따뜻하게) =====
-  res.r += uSkinShift * 0.05 * m;
-  res.b -= uSkinShift * 0.04 * m;
-
-  // ===== 3. 선명도 (언샤프 마스크) =====
+  // ===== 선명도 =====
   if (uSharp > 0.001) {
-    vec3 nb = texture2D(uFrame, vUV + vec2(uTexel.x, 0.0)).rgb
-            + texture2D(uFrame, vUV - vec2(uTexel.x, 0.0)).rgb
-            + texture2D(uFrame, vUV + vec2(0.0, uTexel.y)).rgb
-            + texture2D(uFrame, vUV - vec2(0.0, uTexel.y)).rgb;
+    vec3 nb = texture2D(uFrame, uv + vec2(uTexel.x, 0.0)).rgb
+            + texture2D(uFrame, uv - vec2(uTexel.x, 0.0)).rgb
+            + texture2D(uFrame, uv + vec2(0.0, uTexel.y)).rgb
+            + texture2D(uFrame, uv - vec2(0.0, uTexel.y)).rgb;
     res += (c - nb * 0.25) * uSharp;
   }
 
-  // ===== 4. 화이트 밸런스 =====
+  // ===== 화이트 밸런스 / RGB / 콘트라스트 / 채도 =====
   res *= vec3(1.0 + 0.09 * uWB, 1.0 + 0.015 * uWB, 1.0 - 0.09 * uWB);
-
-  // ===== 5. RGB 게인 =====
   res *= uRGB;
-
-  // ===== 6. 콘트라스트 & 채도 =====
   res = (res - 0.5) * uContrast + 0.5;
   res = clamp(res, 0.0, 1.0);
   float sl = dot(res, vec3(0.299, 0.587, 0.114));
   res = mix(vec3(sl), res, uSat);
 
-  // ===== 7. 필름 그레이드 (메인 룩) =====
+  // ===== 필름 그레이드 =====
   if (uFilm > 0.005) {
     vec3 f = res;
     f = f * (1.0 - 0.13 * uFilm) + vec3(0.06 * uFilm);
@@ -515,8 +552,9 @@ function initGLOnce() {
     return t;
   };
   mkTex(0); mkTex(1);
-  ["uFrame","uMask","uTexel","uRadius","uSmooth","uBlemish","uSkinShift",
-   "uFilm","uSharp","uContrast","uSat","uRGB","uWB","uTime"]
+  ["uFrame","uMask","uTexel","uAspect","uRadius","uSmooth","uBlemish","uFilm","uSharp",
+   "uContrast","uSat","uRGB","uWB","uTime","uLens",
+   "uWarpAmt","uWarpPL","uWarpPR","uWarpDL","uWarpDR","uWarpRad"]
     .forEach(n => uLoc[n] = gl.getUniformLocation(prog, n));
   gl.uniform1i(uLoc.uFrame, 0);
   gl.uniform1i(uLoc.uMask, 1);
@@ -525,68 +563,183 @@ function initGLOnce() {
   return true;
 }
 
-function resizeGL(w, h) {
-  glCanvas.width = w; glCanvas.height = h;
-  gl.viewport(0, 0, w, h);
-  gl.uniform2f(uLoc.uTexel, 1 / w, 1 / h);
+// 화각별 렌즈 왜곡 계수 (28mm = 배럴, 50mm = 살짝 평탄)
+const LENS_MAP = { 28: -0.13, 35: 0.0, 50: 0.06 };
+
+// 공통 유니폼 설정 후 1프레임 그리기
+function drawGL(srcTex, opt) {
+  gl.viewport(0, 0, glCanvas.width, glCanvas.height);
+  gl.uniform2f(uLoc.uTexel, 1 / opt.srcW, 1 / opt.srcH);
+  gl.uniform1f(uLoc.uAspect, opt.srcH / opt.srcW);
+  gl.activeTexture(gl.TEXTURE0);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, srcTex);
+
+  gl.uniform1f(uLoc.uRadius, opt.radius ?? 3);
+  gl.uniform1f(uLoc.uSmooth, opt.smooth ?? 0);
+  gl.uniform1f(uLoc.uBlemish, opt.blemish ?? 0);
+  gl.uniform1f(uLoc.uFilm, opt.film ?? 0);
+  gl.uniform1f(uLoc.uSharp, opt.sharp ?? 0);
+  gl.uniform1f(uLoc.uContrast, opt.contrast ?? 1);
+  gl.uniform1f(uLoc.uSat, opt.sat ?? 1);
+  gl.uniform3f(uLoc.uRGB, ...(opt.rgb ?? [1, 1, 1]));
+  gl.uniform1f(uLoc.uWB, opt.wb ?? 0);
+  gl.uniform1f(uLoc.uTime, opt.time ?? 0.5);
+  gl.uniform1f(uLoc.uLens, opt.lens ?? 0);
+  const wp = opt.warp;
+  gl.uniform1f(uLoc.uWarpAmt, wp ? wp.amt : 0);
+  if (wp) {
+    gl.uniform2f(uLoc.uWarpPL, wp.pl[0], wp.pl[1]);
+    gl.uniform2f(uLoc.uWarpPR, wp.pr[0], wp.pr[1]);
+    gl.uniform2f(uLoc.uWarpDL, wp.dl[0], wp.dl[1]);
+    gl.uniform2f(uLoc.uWarpDR, wp.dr[0], wp.dr[1]);
+    gl.uniform1f(uLoc.uWarpRad, wp.rad);
+  }
+  gl.drawArrays(gl.TRIANGLES, 0, 3);
 }
 
-function processFrame() {
-  if (!glOK) return video;
-  if (lastLandmarks) {
-    buildFaceMaskIfNeeded();
-    const L = lastLandmarks;
-    const faceW = Math.abs(L[454].x - L[234].x) * out.width;
-    gl.uniform1f(uLoc.uRadius, Math.max(2.5, faceW * 0.026));
-  }
-  gl.activeTexture(gl.TEXTURE0);
-  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, video);
+// 윤곽 보정 파라미터 계산 (마스크 좌표계 = 원본 uv, 화면은 나중에 미러링됨)
+function contourParams() {
+  if (!contourOn || !lastLandmarks) return null;
+  const L = lastLandmarks;
+  const cx = (L[234].x + L[454].x) / 2;
+  const faceWuv = Math.abs(L[454].x - L[234].x);
+  const mk = (idx) => {
+    const p = L[idx];
+    // GL 텍스처는 위아래가 뒤집혀 있으므로 y 반전
+    const pos = [p.x, 1 - p.y];
+    let d = [p.x - cx, 0];
+    const len = Math.hypot(d[0], d[1]) || 1;
+    d = [d[0] / len, d[1] / len];   // 얼굴 바깥 방향
+    return { pos, d };
+  };
+  const jl = mk(172), jr = mk(397);   // 좌우 턱선 포인트
+  return {
+    amt: faceWuv * 0.035,             // Evoto 수준의 은은한 강도
+    pl: jl.pos, dl: jl.d,
+    pr: jr.pos, dr: jr.d,
+    rad: Math.pow(faceWuv * 0.42, 2),
+  };
+}
 
-  const hasFace = !!lastLandmarks;
-  gl.uniform1f(uLoc.uSmooth,    hasFace ? S.smooth.value / 100 : 0);
-  gl.uniform1f(uLoc.uBlemish,   hasFace ? S.blemish.value / 100 : 0);
-  gl.uniform1f(uLoc.uSkinShift, hasFace ? S.skinShift.value / 50 : 0);
-  gl.uniform1f(uLoc.uFilm,      S.film.value / 100);
-  gl.uniform1f(uLoc.uSharp,     S.sharp.value / 100 * 1.1);
-  gl.uniform1f(uLoc.uContrast,  S.contrast.value / 100);
-  gl.uniform1f(uLoc.uSat,       S.sat.value / 100);
-  gl.uniform3f(uLoc.uRGB, S.rGain.value / 100, S.gGain.value / 100, S.bGain.value / 100);
-  gl.uniform1f(uLoc.uWB, wbValue);
-  gl.uniform1f(uLoc.uTime, (performance.now() % 10000) / 10000);
-  gl.drawArrays(gl.TRIANGLES, 0, 3);
+/* ===== 촬영 프리뷰 ===== */
+const PREVIEW_SCALE = 0.5;   // 미리보기는 절반 해상도 → 발열 절약, 촬영은 원본 해상도
+
+function camPreviewFrame() {
+  if (!glOK) return video;
+  glCanvas.width = Math.round(video.videoWidth * PREVIEW_SCALE);
+  glCanvas.height = Math.round(video.videoHeight * PREVIEW_SCALE);
+  buildFaceMaskIfNeeded();
+  const faceW = lastLandmarks ? Math.abs(lastLandmarks[454].x - lastLandmarks[234].x) * video.videoWidth : 0;
+  drawGL(video, {
+    srcW: video.videoWidth, srcH: video.videoHeight,
+    radius: Math.max(2.5, faceW * 0.026),
+    smooth: (skinOn && lastLandmarks) ? 0.45 : 0,
+    blemish: (blemishOn && lastLandmarks) ? 0.65 : 0,
+    film: 0.6,                                     // 프리뷰에서 필름 룩 미리 보기
+    lens: LENS_MAP[focal],
+    warp: contourParams(),
+    time: (performance.now() % 10000) / 10000,
+  });
   return glCanvas;
 }
+
+/* ===== 고해상도 촬영 → 편집 화면 ===== */
+function captureHighRes() {
+  // 원본 해상도로 1프레임 처리 (피부·윤곽·렌즈만 굽고, 색·필름은 편집에서)
+  glCanvas.width = video.videoWidth;
+  glCanvas.height = video.videoHeight;
+  const faceW = lastLandmarks ? Math.abs(lastLandmarks[454].x - lastLandmarks[234].x) * video.videoWidth : 0;
+  drawGL(video, {
+    srcW: video.videoWidth, srcH: video.videoHeight,
+    radius: Math.max(2.5, faceW * 0.026),
+    smooth: (skinOn && lastLandmarks) ? 0.45 : 0,
+    blemish: (blemishOn && lastLandmarks) ? 0.65 : 0,
+    lens: LENS_MAP[focal],
+    warp: contourParams(),
+  });
+
+  // 미러링 + 화각 크롭을 구워서 편집 원본 확정
+  const w = video.videoWidth, h = video.videoHeight;
+  const cropF = hwZoom ? 1 : 28 / focal;
+  const sw = w * cropF, sh = h * cropF;
+  const sx = (w - sw) / 2, sy = (h - sh) / 2;
+  capCanvas.width = w; capCanvas.height = h;
+  capCtx.save();
+  if (facing === "user") { capCtx.translate(w, 0); capCtx.scale(-1, 1); }
+  capCtx.drawImage(glOK ? glCanvas : video, sx, sy, sw, sh, 0, 0, w, h);
+  capCtx.restore();
+
+  enterEdit();
+}
+
+function enterEdit() {
+  mode = "edit";
+  $("camScreen").classList.remove("on");
+  $("editScreen").classList.add("on");
+  editOut.width = capCanvas.width;
+  editOut.height = capCanvas.height;
+  editRender();
+}
+
+function editRender() {
+  if (!glOK) { editCtx.drawImage(capCanvas, 0, 0); return; }
+  glCanvas.width = capCanvas.width;
+  glCanvas.height = capCanvas.height;
+  drawGL(capCanvas, {
+    srcW: capCanvas.width, srcH: capCanvas.height,
+    film: S.film.value / 100,
+    sharp: S.sharp.value / 100 * 1.1,
+    contrast: S.contrast.value / 100,
+    sat: S.sat.value / 100,
+    rgb: [S.rGain.value / 100, S.gGain.value / 100, S.bGain.value / 100],
+    wb: wbValue,
+  });
+  editCtx.drawImage(glCanvas, 0, 0);
+}
+
+$("retakeBtn").addEventListener("click", () => {
+  mode = "cam";
+  $("editScreen").classList.remove("on");
+  $("camScreen").classList.add("on");
+});
+
+$("saveBtn").addEventListener("click", () => {
+  editRender();
+  const a = document.createElement("a");
+  a.href = editOut.toDataURL("image/png");
+  const t = new Date();
+  a.download = "film-cam_" + t.getHours() + "시" + t.getMinutes() + "분" + t.getSeconds() + "초.png";
+  a.click();
+  showToast("저장했어요");
+});
 
 /* ===== 카메라 시작 / 전환 ===== */
 async function startStream() {
   if (video.srcObject) video.srcObject.getTracks().forEach(t => t.stop());
   const stream = await navigator.mediaDevices.getUserMedia({
-    video: { facingMode: facing, width: { ideal: 720 }, height: { ideal: 960 } },
+    video: { facingMode: facing, width: { ideal: 1080 }, height: { ideal: 1440 } },
     audio: false,
   });
   video.srcObject = stream;
   await video.play();
-
-  out.width = video.videoWidth;
-  out.height = video.videoHeight;
-  maskCanvas.width = Math.round(video.videoWidth / 4);
-  maskCanvas.height = Math.round(video.videoHeight / 4);
-
+  out.width = Math.round(video.videoWidth * PREVIEW_SCALE);
+  out.height = Math.round(video.videoHeight * PREVIEW_SCALE);
+  maskCanvas.width = Math.round(video.videoWidth / 5);
+  maskCanvas.height = Math.round(video.videoHeight / 5);
   glOK = initGLOnce();
   if (glOK) {
-    resizeGL(video.videoWidth, video.videoHeight);
     gl.activeTexture(gl.TEXTURE1);
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, maskCanvas);
   }
-  lastLandmarks = null;
-  maskDirty = false;
-  tryFocus("continuous");   // 자동초점 유지 요청 (지원 기기에서)
-  await applyFocal();       // 선택된 화각 적용
+  lastLandmarks = null; maskDirty = false;
+  tryFocus("continuous");
+  await applyFocal();
+  await applyShutter();
 }
 
-startBtn.addEventListener("click", async () => {
-  startBtn.disabled = true;
-  startBtn.textContent = "준비 중…";
+$("startBtn").addEventListener("click", async () => {
+  const btn = $("startBtn");
+  btn.disabled = true; btn.textContent = "준비 중…";
   try {
     const fileset = await FilesetResolver.forVisionTasks(
       "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm"
@@ -596,54 +749,35 @@ startBtn.addEventListener("click", async () => {
         modelAssetPath: "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task",
         delegate: "GPU",
       },
-      runningMode: "VIDEO",
-      numFaces: 1,
+      runningMode: "VIDEO", numFaces: 1,
     });
     await startStream();
-    if (!glOK) alert("이 기기는 GPU 처리(WebGL)를 지원하지 않아 원본 그대로 표시돼요.");
-    stage.classList.add("live");
-    shotBtn.disabled = false;
+    if (!glOK) showToast("이 기기는 GPU 처리를 지원하지 않아요");
+    $("placeholder").style.display = "none";
+    out.style.display = "block";
+    $("camTop").style.display = "flex";
+    $("camBottom").style.display = "flex";
+    $("shotBtn").disabled = false;
     requestAnimationFrame(loop);
   } catch (err) {
-    startBtn.disabled = false;
-    startBtn.textContent = "카메라 켜기";
+    btn.disabled = false; btn.textContent = "카메라 켜기";
     alert("카메라를 켤 수 없어요.\n브라우저의 카메라 권한을 확인해 주세요.\n\n" + err.message);
   }
 });
 
-flipBtn.addEventListener("click", async () => {
-  if (!stage.classList.contains("live")) return;
+$("flipBtn").addEventListener("click", async () => {
   facing = (facing === "user") ? "environment" : "user";
   try { await startStream(); }
   catch (err) {
-    facing = (facing === "user") ? "environment" : "user";   // 실패 시 원복
+    facing = (facing === "user") ? "environment" : "user";
     await startStream().catch(() => {});
-    alert("카메라 전환에 실패했어요: " + err.message);
+    showToast("카메라 전환 실패");
   }
 });
 
-/* ===== 탭하여 초점 ===== */
-function tryFocus(mode) {
-  const track = video.srcObject?.getVideoTracks()[0];
-  if (!track || !track.getCapabilities) return;
-  const caps = track.getCapabilities();
-  if (!caps.focusMode) return;   // 초점 제어 미지원 기기 → 조용히 무시
-  const m = caps.focusMode.includes(mode) ? mode
-          : caps.focusMode.includes("continuous") ? "continuous" : null;
-  if (m) track.applyConstraints({ advanced: [{ focusMode: m }] }).catch(() => {});
-}
-
-stage.addEventListener("click", (e) => {
-  if (!stage.classList.contains("live")) return;
-  if (e.target !== out) return;   // 버튼·패널 클릭은 무시, 화면 탭만
-  // 열린 패널이 있으면 닫기
-  const openPanel = document.querySelector(".panel.open");
-  if (openPanel) {
-    openPanel.classList.remove("open");
-    document.querySelectorAll(".dock-btn").forEach(b => b.classList.remove("on"));
-    return;
-  }
-  // 초점 링 + 재초점 시도
+/* ===== 탭 초점 ===== */
+$("camScreen").addEventListener("click", (e) => {
+  if (mode !== "cam" || e.target !== out) return;
   focusRing.style.left = e.clientX + "px";
   focusRing.style.top = e.clientY + "px";
   focusRing.classList.remove("go");
@@ -654,66 +788,42 @@ stage.addEventListener("click", (e) => {
 });
 
 /* ===== 메인 루프 ===== */
-let frameCount = 0;
-let lastSeen = 0;
-let maskDirty = false;
-let lastRenderTs = 0;
+let frameCount = 0, lastSeen = 0, maskDirty = false, lastRenderTs = 0;
 
 function loop(ts) {
   requestAnimationFrame(loop);
-  if (video.readyState < 2) return;
+  if (mode !== "cam" || video.readyState < 2) return;
   if (ts - lastRenderTs < 31) return;   // 30fps 상한
   lastRenderTs = ts;
 
   if (frameCount % 3 === 0) {
     const result = landmarker.detectForVideo(video, performance.now());
     const fresh = result.faceLandmarks?.[0] ?? null;
-    if (fresh) {
-      lastLandmarks = fresh;
-      lastSeen = performance.now();
-      maskDirty = true;
-    } else if (performance.now() - lastSeen > 5000) {
-      lastLandmarks = null;
-    }
+    if (fresh) { lastLandmarks = fresh; lastSeen = performance.now(); maskDirty = true; }
+    else if (performance.now() - lastSeen > 5000) lastLandmarks = null;
   }
   frameCount++;
 
   statusEl.classList.toggle("tracking", !!lastLandmarks);
   statusText.textContent = lastLandmarks ? "얼굴 인식 중" : "얼굴 찾는 중…";
 
-  render();
-}
-
-function render() {
+  // 프리뷰 렌더
+  const src = camPreviewFrame();
   const w = out.width, h = out.height;
-  const src = processFrame();
-  const mirrored = facing === "user";   // 전면만 셀카 미러링
-
-  // 하드웨어 줌 미지원 시 디지털 크롭으로 화각 구현 (28mm = 전체 프레임)
   const cropF = hwZoom ? 1 : 28 / focal;
-  const sw = w * cropF, sh = h * cropF;
-  const sx = (w - sw) / 2, sy = (h - sh) / 2;
-
+  const srcW = src === video ? video.videoWidth : glCanvas.width;
+  const srcH = src === video ? video.videoHeight : glCanvas.height;
+  const sw = srcW * cropF, sh = srcH * cropF;
+  const sx = (srcW - sw) / 2, sy = (srcH - sh) / 2;
   ctx.save();
-  if (mirrored) { ctx.translate(w, 0); ctx.scale(-1, 1); }
+  if (facing === "user") { ctx.translate(w, 0); ctx.scale(-1, 1); }
   ctx.drawImage(src, sx, sy, sw, sh, 0, 0, w, h);
-
-  if (lastLandmarks && showMeshEl.checked) {
-    ctx.fillStyle = "rgba(255,143,171,0.9)";
-    for (const p of lastLandmarks) {
-      const dx = (p.x * w - sx) / cropF;
-      const dy = (p.y * h - sy) / cropF;
-      if (dx < 0 || dx > w || dy < 0 || dy > h) continue;
-      ctx.beginPath();
-      ctx.arc(dx, dy, 1.6, 0, Math.PI * 2);
-      ctx.fill();
-    }
-  }
   ctx.restore();
 }
 
+/* ===== 얼굴 마스크 ===== */
 function buildFaceMaskIfNeeded() {
-  if (!maskDirty) return;
+  if (!maskDirty || !lastLandmarks) return;
   buildFaceMask(maskCanvas.width, maskCanvas.height);
   gl.activeTexture(gl.TEXTURE1);
   gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, maskCanvas);
@@ -723,7 +833,6 @@ function buildFaceMaskIfNeeded() {
 function buildFaceMask(w, h) {
   maskCtx.clearRect(0, 0, w, h);
   const L = lastLandmarks;
-
   maskCtx.save();
   maskCtx.filter = "blur(" + w * 0.015 + "px)";
   maskCtx.fillStyle = "#fff";
@@ -737,12 +846,9 @@ function buildFaceMask(w, h) {
   maskCtx.restore();
 
   const faceW = Math.abs(L[454].x - L[234].x) * w;
-
   const nTop = L[168], nBot = L[2];
-  const ncx = (nTop.x + nBot.x) / 2 * w;
-  const ncy = (nTop.y + nBot.y) / 2 * h;
-  const ndx = (nBot.x - nTop.x) * w;
-  const ndy = (nBot.y - nTop.y) * h;
+  const ncx = (nTop.x + nBot.x) / 2 * w, ncy = (nTop.y + nBot.y) / 2 * h;
+  const ndx = (nBot.x - nTop.x) * w, ndy = (nBot.y - nTop.y) * h;
   const nLen = Math.hypot(ndx, ndy);
   const nAng = Math.atan2(ndy, ndx) - Math.PI / 2;
   maskCtx.save();
@@ -773,26 +879,18 @@ function carveEllipse(top, bottom, rx, ry, w, h) {
   maskCtx.fill();
 }
 
-/* ===== 사진 찍기 (화면 플래시 포함) ===== */
+/* ===== 촬영 ===== */
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
-function capture() {
-  const a = document.createElement("a");
-  a.href = out.toDataURL("image/png");
-  const t = new Date();
-  a.download = "film-cam_" + t.getHours() + "시" + t.getMinutes() + "분" + t.getSeconds() + "초.png";
-  a.click();
-}
-
-shotBtn.addEventListener("click", async () => {
+$("shotBtn").addEventListener("click", async () => {
   if (useFlash && facing === "user") {
     screenFlash.classList.add("on");
-    await sleep(400);   // 화면 빛이 얼굴에 닿고 카메라 노출이 적응할 시간
-    capture();
+    await sleep(400);
+    captureHighRes();
     await sleep(150);
     screenFlash.classList.remove("on");
   } else {
-    capture();
+    captureHighRes();
   }
 });
 </script>

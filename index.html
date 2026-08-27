@@ -423,12 +423,16 @@ void main() {
   vec2 uv = vUV;
 
   // ===== 윤곽 보정 (Evoto 스타일 은은한 V라인) =====
-  // 턱 근처 픽셀의 샘플 위치를 얼굴 바깥쪽으로 살짝 밀면 → 턱선이 안쪽으로 들어와 보임
+  // 얼굴 마스크로 게이팅: 얼굴 안쪽 픽셀만 움직이고 배경은 완전히 고정 → 뒤 배경이 휘지 않음
   if (uWarpAmt > 0.0001) {
-    vec2 dL = uv - uWarpPL; dL.y *= uAspect;
-    uv += uWarpDL * exp(-dot(dL, dL) / uWarpRad) * uWarpAmt;
-    vec2 dR = uv - uWarpPR; dR.y *= uAspect;
-    uv += uWarpDR * exp(-dot(dR, dR) / uWarpRad) * uWarpAmt;
+    float mw = smoothstep(0.0, 0.35, texture2D(uMask, vUV).a);
+    if (mw > 0.001) {
+      vec2 dL = uv - uWarpPL; dL.y *= uAspect;
+      vec2 dR = uv - uWarpPR; dR.y *= uAspect;
+      vec2 push = uWarpDL * exp(-dot(dL, dL) / uWarpRad)
+                + uWarpDR * exp(-dot(dR, dR) / uWarpRad);
+      uv += push * uWarpAmt * mw;
+    }
   }
 
   // ===== 화각 렌즈 느낌: 28mm 배럴 왜곡(가장자리 볼록) ~ 50mm 평탄 =====
@@ -632,9 +636,9 @@ function camPreviewFrame() {
   const faceW = lastLandmarks ? Math.abs(lastLandmarks[454].x - lastLandmarks[234].x) * video.videoWidth : 0;
   drawGL(video, {
     srcW: video.videoWidth, srcH: video.videoHeight,
-    radius: Math.max(2.5, faceW * 0.026),
-    smooth: (skinOn && lastLandmarks) ? 0.45 : 0,
-    blemish: (blemishOn && lastLandmarks) ? 0.65 : 0,
+    radius: Math.max(2.5, faceW * 0.030),
+    smooth: (skinOn && lastLandmarks) ? 0.60 : 0,
+    blemish: (blemishOn && lastLandmarks) ? 0.75 : 0,
     film: 0.6,                                     // 프리뷰에서 필름 룩 미리 보기
     lens: LENS_MAP[focal],
     warp: contourParams(),
@@ -651,9 +655,9 @@ function captureHighRes() {
   const faceW = lastLandmarks ? Math.abs(lastLandmarks[454].x - lastLandmarks[234].x) * video.videoWidth : 0;
   drawGL(video, {
     srcW: video.videoWidth, srcH: video.videoHeight,
-    radius: Math.max(2.5, faceW * 0.026),
-    smooth: (skinOn && lastLandmarks) ? 0.45 : 0,
-    blemish: (blemishOn && lastLandmarks) ? 0.65 : 0,
+    radius: Math.max(2.5, faceW * 0.030),
+    smooth: (skinOn && lastLandmarks) ? 0.60 : 0,
+    blemish: (blemishOn && lastLandmarks) ? 0.75 : 0,
     lens: LENS_MAP[focal],
     warp: contourParams(),
   });

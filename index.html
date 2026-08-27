@@ -202,6 +202,11 @@
     <input type="range" id="blemish" min="0" max="100" value="60" />
     <output id="blemishVal">60</output>
   </div>
+  <div class="row">
+    <label for="tone">톤 보정</label>
+    <input type="range" id="tone" min="0" max="100" value="40" />
+    <output id="toneVal">40</output>
+  </div>
   <div class="toggle-row">
     <div>
       <span>얼굴 인식 점 보기</span>
@@ -233,6 +238,8 @@ const smoothEl   = document.getElementById("smooth");
 const smoothVal  = document.getElementById("smoothVal");
 const blemishEl  = document.getElementById("blemish");
 const blemishVal = document.getElementById("blemishVal");
+const toneEl     = document.getElementById("tone");
+const toneVal    = document.getElementById("toneVal");
 const showMeshEl = document.getElementById("showMesh");
 const shotBtn    = document.getElementById("shotBtn");
 const flash      = document.getElementById("flash");
@@ -285,12 +292,13 @@ uniform vec2  uTexel;       // 1픽셀 크기
 uniform float uRadius;      // 샘플 반경(픽셀) — 얼굴 크기에 비례
 uniform float uSmooth;      // 0~1 부드럽게
 uniform float uBlemish;     // 0~1 잡티 제거
+uniform float uTone;        // 0~1 톤 보정
 
 void main() {
   vec3 c = texture2D(uFrame, vUV).rgb;
   float m = texture2D(uMask, vUV).a;
 
-  if (m < 0.01 || (uSmooth < 0.01 && uBlemish < 0.01)) {
+  if (m < 0.01 || (uSmooth < 0.01 && uBlemish < 0.01 && uTone < 0.01)) {
     gl_FragColor = vec4(c, 1.0);
     return;
   }
@@ -315,16 +323,32 @@ void main() {
   vec3 avg = plain / 17.0;     // 잡티까지 뭉갠 주변 평균
   vec3 hi = c - base;          // 고주파 성분 = 피부 질감
 
+  // 넓은 반경 평균 — 톤 보정에서 '주변 피부색'의 기준으로 사용
+  vec3 plainWide = c;
+  for (int i = 0; i < 8; i++) {
+    float ang = 0.7853982 * float(i);      // 8방향 (45도 간격)
+    vec2 off = vec2(cos(ang), sin(ang)) * uRadius * 2.4 * uTexel;
+    plainWide += texture2D(uFrame, vUV + off).rgb;
+  }
+  vec3 wide = plainWide / 9.0;
+
   // --- 2. 잡티 제거: '적당히' 어두운 점만 잡티로 인정 ---
   // 잡티는 피부보다 5~15% 어둡고, 콧구멍·그림자 윤곽선은 훨씬 더 어둡다.
   // 그래서 어두운 정도에 밴드(구간)를 둬서 구조적인 그림자는 보호한다.
   float darker = avg.g - c.g;                       // 주변보다 어두운 정도
-  float th = 0.040 - 0.024 * uBlemish;              // 강도 올릴수록 민감하게
-  float spot = smoothstep(th * 0.4, th, darker);
+  float th = 0.045 - 0.018 * uBlemish;              // 최소 기준을 높여 일반 피부 결은 건드리지 않음
+  float spot = smoothstep(th * 0.5, th, darker);
   spot *= 1.0 - smoothstep(0.09, 0.18, darker);     // 너무 어두우면 그림자/구멍 → 보호
   spot *= smoothstep(0.12, 0.28, c.g);              // 원래 매우 어두운 픽셀(콧구멍·머리카락)도 보호
-  spot *= uBlemish;
+  spot *= 1.0 - 0.5 * smoothstep(0.65, 0.85, avg.g); // 빛 받는 부위는 절반만 → 밀랍 느낌 방지
+  spot *= 0.85 * uBlemish;                          // 100% 평평하게 덮지 않고 질감을 살짝 남김
   vec3 res = mix(c, avg, spot);
+
+  // 밝은 얼룩 균형 — 어두운 점만 지우면 피부 결의 밝은 절반이 남아
+  // 하얀 반점 무늬처럼 도드라진다 → 유난히 밝은 점도 살짝만 눌러 대칭을 맞춤
+  float brighter = c.g - avg.g;
+  float glare = smoothstep(th, th * 2.2, brighter) * 0.45 * uBlemish;
+  res = mix(res, avg, glare);
 
   // --- 3. 구조 보호 스무딩: 음영·하이라이트 라인은 피해서 평탄한 피부만 정리 ---
   // 주변 평균과 많이 다른 픽셀 = 코 옆 그림자, 팔자 라인, 콧대 하이라이트 같은 '구조' → 스무딩 제외
@@ -332,6 +356,16 @@ void main() {
   float structural = smoothstep(0.035, 0.11, dev);
   res = mix(res, base, uSmooth * 0.45 * (1.0 - structural));
   res += hi * 0.20 * (1.0 - spot);   // 질감 일부 복원 → 뿌얘짐 방지 (잡티 자리는 제외)
+
+  // --- 4. 톤 보정: 밝기(음영·입체감)는 그대로, 색조만 주변 피부와 비슷하게 ---
+  // 홍조·붉은기는 색조에 살고 입체감은 밝기에 살기 때문에,
+  // 색조만 넓은 주변 평균 쪽으로 당기면 혈색은 남기고 얼룩덜룩함만 정리된다.
+  vec3 lw = vec3(0.299, 0.587, 0.114);
+  float lum  = dot(res,  lw);
+  float wlum = dot(wide, lw);
+  vec3 chroma  = res  - vec3(lum);
+  vec3 wchroma = wide - vec3(wlum);
+  res = vec3(lum) + mix(chroma, wchroma, uTone * 0.6);  // 최대 60%만 → 혈색 보존
 
   gl_FragColor = vec4(mix(c, res, m), 1.0);
 }`;
@@ -382,7 +416,7 @@ function initGL(w, h) {
   mkTex(0); // uFrame
   mkTex(1); // uMask
 
-  ["uFrame","uMask","uTexel","uRadius","uSmooth","uBlemish"].forEach(n => uLoc[n] = gl.getUniformLocation(prog, n));
+  ["uFrame","uMask","uTexel","uRadius","uSmooth","uBlemish","uTone"].forEach(n => uLoc[n] = gl.getUniformLocation(prog, n));
   gl.uniform1i(uLoc.uFrame, 0);
   gl.uniform1i(uLoc.uMask, 1);
   gl.uniform2f(uLoc.uTexel, 1 / w, 1 / h);
@@ -394,7 +428,8 @@ function initGL(w, h) {
 function processFrame() {
   const s = smoothEl.value / 100;
   const b = blemishEl.value / 100;
-  if (!glOK || !lastLandmarks || (s < 0.01 && b < 0.01)) return video;
+  const t = toneEl.value / 100;
+  if (!glOK || !lastLandmarks || (s < 0.01 && b < 0.01 && t < 0.01)) return video;
 
   buildFaceMask(out.width, out.height);
   const L = lastLandmarks;
@@ -408,6 +443,7 @@ function processFrame() {
   gl.uniform1f(uLoc.uRadius, Math.max(2.5, faceW * 0.026));
   gl.uniform1f(uLoc.uSmooth, s);
   gl.uniform1f(uLoc.uBlemish, b);
+  gl.uniform1f(uLoc.uTone, t);
   gl.drawArrays(gl.TRIANGLES, 0, 3);
   return glCanvas;
 }
@@ -424,6 +460,7 @@ document.getElementById("filters").addEventListener("click", (e) => {
 
 smoothEl.addEventListener("input", () => smoothVal.textContent = smoothEl.value);
 blemishEl.addEventListener("input", () => blemishVal.textContent = blemishEl.value);
+toneEl.addEventListener("input", () => toneVal.textContent = toneEl.value);
 
 startBtn.addEventListener("click", async () => {
   startBtn.disabled = true;

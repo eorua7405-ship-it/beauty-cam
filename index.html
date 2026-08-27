@@ -12,7 +12,7 @@
     --surface-2: #23232c;
     --text: #f2f0f4;
     --text-dim: #9a97a3;
-    --accent: #ff8fab;       /* 소프트 코랄핑크 — 뷰티캠 감성 */
+    --accent: #ff8fab;
     --accent-deep: #e5678b;
     --line: #2e2e39;
     --radius: 18px;
@@ -30,13 +30,10 @@
     gap: 16px;
   }
   header { text-align: center; }
-  header h1 {
-    font-size: 20px; font-weight: 700; letter-spacing: -0.02em;
-  }
+  header h1 { font-size: 20px; font-weight: 700; letter-spacing: -0.02em; }
   header h1 .dot { color: var(--accent); }
   header p { font-size: 13px; color: var(--text-dim); margin-top: 4px; }
 
-  /* ---- 뷰파인더 ---- */
   .viewfinder {
     position: relative;
     width: min(92vw, 480px);
@@ -47,11 +44,7 @@
     overflow: hidden;
     display: flex; align-items: center; justify-content: center;
   }
-  .viewfinder canvas {
-    width: 100%; height: 100%;
-    object-fit: cover;
-    display: none;
-  }
+  .viewfinder canvas { width: 100%; height: 100%; object-fit: cover; display: none; }
   .viewfinder.live canvas { display: block; }
   .viewfinder.live .placeholder { display: none; }
   .placeholder {
@@ -62,7 +55,6 @@
     width: 72px; height: 72px; border-radius: 50%;
     border: 2px solid var(--line);
     display: flex; align-items: center; justify-content: center;
-    position: relative;
   }
   .placeholder .lens::after {
     content: ""; width: 30px; height: 30px; border-radius: 50%;
@@ -71,14 +63,10 @@
   .placeholder p { font-size: 14px; color: var(--text-dim); line-height: 1.6; }
 
   #startBtn {
-    background: var(--accent);
-    color: #26101a;
-    border: none;
-    font-family: inherit;
+    background: var(--accent); color: #26101a;
+    border: none; font-family: inherit;
     font-size: 15px; font-weight: 700;
-    padding: 12px 28px;
-    border-radius: 999px;
-    cursor: pointer;
+    padding: 12px 28px; border-radius: 999px; cursor: pointer;
     transition: transform 0.12s ease, background 0.12s ease;
   }
   #startBtn:hover { background: var(--accent-deep); color: #fff; transform: translateY(-1px); }
@@ -93,48 +81,33 @@
     display: none; align-items: center; gap: 6px;
   }
   .viewfinder.live .status { display: flex; }
-  .status .led {
-    width: 7px; height: 7px; border-radius: 50%;
-    background: #666;
-  }
+  .status .led { width: 7px; height: 7px; border-radius: 50%; background: #666; }
   .status.tracking .led { background: #6ee7a0; }
   .status.tracking { color: #cfeee0; }
 
-  /* ---- 필터 칩 ---- */
   .filters {
     width: min(92vw, 480px);
     display: flex; gap: 8px;
-    overflow-x: auto;
-    padding-bottom: 4px;
+    overflow-x: auto; padding-bottom: 4px;
     scrollbar-width: none;
   }
   .filters::-webkit-scrollbar { display: none; }
   .chip {
     flex: 0 0 auto;
-    background: var(--surface);
-    border: 1px solid var(--line);
-    color: var(--text-dim);
-    font-family: inherit;
+    background: var(--surface); border: 1px solid var(--line);
+    color: var(--text-dim); font-family: inherit;
     font-size: 13px; font-weight: 500;
-    padding: 8px 16px;
-    border-radius: 999px;
-    cursor: pointer;
+    padding: 8px 16px; border-radius: 999px; cursor: pointer;
     transition: all 0.12s ease;
   }
   .chip:hover { border-color: var(--accent); color: var(--text); }
-  .chip.on {
-    background: var(--accent); border-color: var(--accent);
-    color: #26101a; font-weight: 700;
-  }
+  .chip.on { background: var(--accent); border-color: var(--accent); color: #26101a; font-weight: 700; }
   .chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
-  /* ---- 컨트롤 ---- */
   .controls {
     width: min(92vw, 480px);
-    background: var(--surface);
-    border: 1px solid var(--line);
-    border-radius: var(--radius);
-    padding: 18px;
+    background: var(--surface); border: 1px solid var(--line);
+    border-radius: var(--radius); padding: 18px;
     display: flex; flex-direction: column; gap: 16px;
   }
   .row { display: flex; align-items: center; gap: 12px; }
@@ -171,24 +144,16 @@
   .switch input:focus-visible + .track { outline: 2px solid var(--accent); outline-offset: 2px; }
 
   #shotBtn {
-    background: transparent;
-    border: 1px solid var(--accent);
-    color: var(--accent);
-    font-family: inherit;
-    font-size: 14px; font-weight: 700;
-    padding: 12px;
-    border-radius: 999px;
-    cursor: pointer;
+    background: transparent; border: 1px solid var(--accent); color: var(--accent);
+    font-family: inherit; font-size: 14px; font-weight: 700;
+    padding: 12px; border-radius: 999px; cursor: pointer;
     transition: all 0.12s ease;
   }
   #shotBtn:hover:not(:disabled) { background: var(--accent); color: #26101a; }
   #shotBtn:disabled { opacity: 0.35; cursor: default; }
   #shotBtn:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
 
-  .flash {
-    position: absolute; inset: 0; background: #fff; opacity: 0;
-    pointer-events: none;
-  }
+  .flash { position: absolute; inset: 0; background: #fff; opacity: 0; pointer-events: none; }
   .flash.go { animation: flash 0.35s ease; }
   @keyframes flash { 0% { opacity: 0.9; } 100% { opacity: 0; } }
   @media (prefers-reduced-motion: reduce) {
@@ -203,7 +168,7 @@
 
 <header>
   <h1>뷰티 카메라<span class="dot">.</span></h1>
-  <p>실시간 얼굴 인식 · 색감 필터 · 피부 보정 데모</p>
+  <p>GPU 엣지 보존 보정 · 잡티 제거 · 색감 필터</p>
 </header>
 
 <div class="viewfinder" id="viewfinder">
@@ -228,9 +193,14 @@
 
 <div class="controls">
   <div class="row">
-    <label for="smooth">피부 보정</label>
-    <input type="range" id="smooth" min="0" max="100" value="50" />
-    <output id="smoothVal">50</output>
+    <label for="smooth">부드럽게</label>
+    <input type="range" id="smooth" min="0" max="100" value="40" />
+    <output id="smoothVal">40</output>
+  </div>
+  <div class="row">
+    <label for="blemish">잡티 제거</label>
+    <input type="range" id="blemish" min="0" max="100" value="60" />
+    <output id="blemishVal">60</output>
   </div>
   <div class="toggle-row">
     <div>
@@ -246,7 +216,7 @@
 </div>
 
 <footer>
-  크롬 브라우저에서 열고 카메라 권한을 허용해 주세요.<br />
+  피부 보정은 GPU 양방향 필터로 처리돼요 — 경계는 살리고 피부톤만 고르게.<br />
   모든 처리는 내 기기 안에서만 이루어지고, 영상은 어디에도 전송되지 않아요.
 </footer>
 
@@ -261,6 +231,8 @@ const statusEl   = document.getElementById("status");
 const statusText = document.getElementById("statusText");
 const smoothEl   = document.getElementById("smooth");
 const smoothVal  = document.getElementById("smoothVal");
+const blemishEl  = document.getElementById("blemish");
+const blemishVal = document.getElementById("blemishVal");
 const showMeshEl = document.getElementById("showMesh");
 const shotBtn    = document.getElementById("shotBtn");
 const flash      = document.getElementById("flash");
@@ -268,16 +240,13 @@ const flash      = document.getElementById("flash");
 const video = document.createElement("video");
 video.playsInline = true; video.muted = true;
 
-// 오프스크린 캔버스: 블러 처리용 / 마스크용
-const blurCanvas = document.createElement("canvas");
-const blurCtx = blurCanvas.getContext("2d");
+// 얼굴 마스크용 2D 캔버스 (셰이더에 텍스처로 전달됨)
 const maskCanvas = document.createElement("canvas");
 const maskCtx = maskCanvas.getContext("2d");
 
 // MediaPipe 얼굴 윤곽(face oval) 랜드마크 번호
 const FACE_OVAL = [10,338,297,332,284,251,389,356,454,323,361,288,397,365,379,378,400,377,152,148,176,149,150,136,172,58,132,93,234,127,162,21,54,103,67,109];
 
-// 색감 필터 정의 (canvas filter 문법)
 const FILTERS = {
   none:   "none",
   bright: "brightness(1.08) saturate(1.12) contrast(1.02)",
@@ -290,7 +259,148 @@ let currentFilter = "none";
 let landmarker = null;
 let lastLandmarks = null;
 
-// ---- 필터 칩 ----
+/* =========================================================
+   WebGL: 양방향(bilateral) 필터 + 잡티 제거 셰이더
+   - 색이 비슷한 이웃 픽셀만 평균 → 경계(눈매/윤곽)는 보존
+   - 주변보다 어두운 점(잡티)만 감지해서 그 부분만 채움
+   ========================================================= */
+const glCanvas = document.createElement("canvas");
+const gl = glCanvas.getContext("webgl", { premultipliedAlpha: false });
+let glOK = false, uLoc = {};
+
+const VS = `
+attribute vec2 aPos;
+varying vec2 vUV;
+void main() {
+  vUV = aPos * 0.5 + 0.5;
+  gl_Position = vec4(aPos, 0.0, 1.0);
+}`;
+
+const FS = `
+precision mediump float;
+varying vec2 vUV;
+uniform sampler2D uFrame;   // 카메라 프레임
+uniform sampler2D uMask;    // 얼굴 마스크 (눈/눈썹/입/콧방울 제외됨)
+uniform vec2  uTexel;       // 1픽셀 크기
+uniform float uRadius;      // 샘플 반경(픽셀) — 얼굴 크기에 비례
+uniform float uSmooth;      // 0~1 부드럽게
+uniform float uBlemish;     // 0~1 잡티 제거
+
+void main() {
+  vec3 c = texture2D(uFrame, vUV).rgb;
+  float m = texture2D(uMask, vUV).a;
+
+  if (m < 0.01 || (uSmooth < 0.01 && uBlemish < 0.01)) {
+    gl_FragColor = vec4(c, 1.0);
+    return;
+  }
+
+  // --- 1. 양방향 필터: 색 차이가 작은(=같은 피부) 이웃만 가중 평균 ---
+  float sigmaR = 0.10 + 0.10 * uSmooth;   // 색 허용 범위
+  vec3 sum = c;
+  float wsum = 1.0;
+  for (int i = 0; i < 16; i++) {
+    float ang = 0.3926991 * float(i);      // 16방향 (22.5도 간격)
+    float ring = (mod(float(i), 2.0) < 1.0) ? 1.0 : 0.55;  // 두 개의 반경 링
+    vec2 off = vec2(cos(ang), sin(ang)) * uRadius * ring * uTexel;
+    vec3 s = texture2D(uFrame, vUV + off).rgb;
+    float d = length(s - c);
+    float wr = exp(-(d * d) / (2.0 * sigmaR * sigmaR));
+    sum += s * wr;
+    wsum += wr;
+  }
+  vec3 base = sum / wsum;      // 경계가 보존된 매끈한 피부
+  vec3 hi = c - base;          // 고주파 성분 = 피부 질감 + 잡티
+
+  // --- 2. 잡티 제거: 주변보다 어두운 점만 골라 주변 톤으로 채움 ---
+  float spot = clamp(-hi.g * (4.0 + 10.0 * uBlemish), 0.0, 1.0) * uBlemish;
+  vec3 res = mix(c, base, spot);
+
+  // --- 3. 전체 톤 정리(약하게) + 질감 되살리기 ---
+  res = mix(res, base, uSmooth * 0.45);
+  res += hi * 0.20 * (1.0 - spot);   // 질감 일부 복원 → 뿌얘짐 방지
+
+  gl_FragColor = vec4(mix(c, res, m), 1.0);
+}`;
+
+function initGL(w, h) {
+  if (!gl) return false;
+  glCanvas.width = w; glCanvas.height = h;
+  gl.viewport(0, 0, w, h);
+
+  const compile = (type, src) => {
+    const s = gl.createShader(type);
+    gl.shaderSource(s, src);
+    gl.compileShader(s);
+    if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) {
+      console.error(gl.getShaderInfoLog(s));
+      return null;
+    }
+    return s;
+  };
+  const vs = compile(gl.VERTEX_SHADER, VS);
+  const fs = compile(gl.FRAGMENT_SHADER, FS);
+  if (!vs || !fs) return false;
+
+  const prog = gl.createProgram();
+  gl.attachShader(prog, vs); gl.attachShader(prog, fs);
+  gl.linkProgram(prog);
+  if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) return false;
+  gl.useProgram(prog);
+
+  // 화면 전체를 덮는 삼각형 하나
+  const buf = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 3,-1, -1,3]), gl.STATIC_DRAW);
+  const aPos = gl.getAttribLocation(prog, "aPos");
+  gl.enableVertexAttribArray(aPos);
+  gl.vertexAttribPointer(aPos, 2, gl.FLOAT, false, 0, 0);
+
+  const mkTex = (unit) => {
+    const t = gl.createTexture();
+    gl.activeTexture(gl.TEXTURE0 + unit);
+    gl.bindTexture(gl.TEXTURE_2D, t);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    return t;
+  };
+  mkTex(0); // uFrame
+  mkTex(1); // uMask
+
+  ["uFrame","uMask","uTexel","uRadius","uSmooth","uBlemish"].forEach(n => uLoc[n] = gl.getUniformLocation(prog, n));
+  gl.uniform1i(uLoc.uFrame, 0);
+  gl.uniform1i(uLoc.uMask, 1);
+  gl.uniform2f(uLoc.uTexel, 1 / w, 1 / h);
+  gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
+  return true;
+}
+
+// 매 프레임: 카메라 → GPU 보정 → 보정된 캔버스 반환
+function processFrame() {
+  const s = smoothEl.value / 100;
+  const b = blemishEl.value / 100;
+  if (!glOK || !lastLandmarks || (s < 0.01 && b < 0.01)) return video;
+
+  buildFaceMask(out.width, out.height);
+  const L = lastLandmarks;
+  const faceW = Math.abs(L[454].x - L[234].x) * out.width;
+
+  gl.activeTexture(gl.TEXTURE0);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, video);
+  gl.activeTexture(gl.TEXTURE1);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, maskCanvas);
+
+  gl.uniform1f(uLoc.uRadius, Math.max(2.0, faceW * 0.02));
+  gl.uniform1f(uLoc.uSmooth, s);
+  gl.uniform1f(uLoc.uBlemish, b);
+  gl.drawArrays(gl.TRIANGLES, 0, 3);
+  return glCanvas;
+}
+
+/* ========================================================= */
+
 document.getElementById("filters").addEventListener("click", (e) => {
   const chip = e.target.closest(".chip");
   if (!chip) return;
@@ -300,13 +410,12 @@ document.getElementById("filters").addEventListener("click", (e) => {
 });
 
 smoothEl.addEventListener("input", () => smoothVal.textContent = smoothEl.value);
+blemishEl.addEventListener("input", () => blemishVal.textContent = blemishEl.value);
 
-// ---- 시작 ----
 startBtn.addEventListener("click", async () => {
   startBtn.disabled = true;
   startBtn.textContent = "준비 중…";
   try {
-    // 1) 얼굴 인식 모델 로드
     const fileset = await FilesetResolver.forVisionTasks(
       "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm"
     );
@@ -319,7 +428,6 @@ startBtn.addEventListener("click", async () => {
       numFaces: 1,
     });
 
-    // 2) 카메라 켜기
     const stream = await navigator.mediaDevices.getUserMedia({
       video: { facingMode: "user", width: { ideal: 960 }, height: { ideal: 1280 } },
       audio: false,
@@ -327,8 +435,12 @@ startBtn.addEventListener("click", async () => {
     video.srcObject = stream;
     await video.play();
 
-    out.width = blurCanvas.width = maskCanvas.width = video.videoWidth;
-    out.height = blurCanvas.height = maskCanvas.height = video.videoHeight;
+    out.width = maskCanvas.width = video.videoWidth;
+    out.height = maskCanvas.height = video.videoHeight;
+    glOK = initGL(video.videoWidth, video.videoHeight);
+    if (!glOK) {
+      alert("이 기기는 GPU 보정(WebGL)을 지원하지 않아 보정 없이 표시돼요.");
+    }
 
     viewfinder.classList.add("live");
     shotBtn.disabled = false;
@@ -340,10 +452,8 @@ startBtn.addEventListener("click", async () => {
   }
 });
 
-// ---- 메인 렌더링 루프 ----
 function loop() {
   if (video.readyState >= 2) {
-    // 얼굴 인식
     const result = landmarker.detectForVideo(video, performance.now());
     lastLandmarks = result.faceLandmarks?.[0] ?? null;
 
@@ -357,44 +467,15 @@ function loop() {
 
 function render() {
   const w = out.width, h = out.height;
+  const src = processFrame();   // GPU 보정된 프레임 (또는 원본)
 
-  // 셀카처럼 좌우 반전
   ctx.save();
-  ctx.translate(w, 0); ctx.scale(-1, 1);
+  ctx.translate(w, 0); ctx.scale(-1, 1);   // 셀카 미러링
 
-  // 1) 색감 필터를 적용해 원본 프레임 그리기
   ctx.filter = FILTERS[currentFilter];
-  ctx.drawImage(video, 0, 0, w, h);
+  ctx.drawImage(src, 0, 0, w, h);
   ctx.filter = "none";
 
-  // 2) 피부 보정: 얼굴 영역만 부드럽게 블렌딩
-  // (블러와 마스크는 원본 좌표계에서 만들고, 화면에 그릴 때 한 번만 반전됨)
-  const strength = smoothEl.value / 100;
-  if (lastLandmarks && strength > 0) {
-    const L = lastLandmarks;
-    const faceW = Math.abs(L[454].x - L[234].x) * w; // 얼굴 폭 기준으로 블러 세기 결정
-
-    // (a) 블러 프레임 준비 — 약하게. 세게 하면 '뿌연 유리' 느낌이 남
-    const blurPx = faceW * (0.012 + strength * 0.018);
-    blurCtx.filter = FILTERS[currentFilter] + " blur(" + blurPx + "px)";
-    blurCtx.drawImage(video, 0, 0, w, h);
-    blurCtx.filter = "none";
-
-    // (b) 얼굴 윤곽 마스크 만들기 (눈/눈썹/입/콧방울은 파내기)
-    buildFaceMask(w, h);
-
-    // (c) 마스크를 블러 프레임에 적용
-    blurCtx.globalCompositeOperation = "destination-in";
-    blurCtx.drawImage(maskCanvas, 0, 0);
-    blurCtx.globalCompositeOperation = "source-over";
-
-    // (d) 원본 위에 은은하게 얹기 — 최대 60%까지만 섞어서 피부 질감을 남김
-    ctx.globalAlpha = 0.25 + strength * 0.35;
-    ctx.drawImage(blurCanvas, 0, 0);
-    ctx.globalAlpha = 1;
-  }
-
-  // 3) 랜드마크 표시 (학습용)
   if (lastLandmarks && showMeshEl.checked) {
     ctx.fillStyle = "rgba(255,143,171,0.9)";
     for (const p of lastLandmarks) {
@@ -403,16 +484,14 @@ function render() {
       ctx.fill();
     }
   }
-
   ctx.restore();
 }
 
-// 얼굴 윤곽을 채우고 눈·입 부분은 비워둔 마스크
+// 얼굴 윤곽을 채우고 눈·눈썹·입·콧방울은 비워둔 마스크
 function buildFaceMask(w, h) {
   maskCtx.clearRect(0, 0, w, h);
   const L = lastLandmarks;
 
-  // 얼굴 윤곽 채우기 (경계를 살짝 흐려서 티 안 나게)
   maskCtx.save();
   maskCtx.filter = "blur(" + w * 0.015 + "px)";
   maskCtx.fillStyle = "#fff";
@@ -425,18 +504,17 @@ function buildFaceMask(w, h) {
   maskCtx.fill();
   maskCtx.restore();
 
-  // 눈·눈썹·입·콧방울 파내기 (선명해야 하는 부위는 디테일 보존)
-  const faceW = Math.abs(L[454].x - L[234].x) * w; // 얼굴 폭 기준
+  const faceW = Math.abs(L[454].x - L[234].x) * w;
   maskCtx.save();
   maskCtx.globalCompositeOperation = "destination-out";
   maskCtx.filter = "blur(" + faceW * 0.02 + "px)";
   maskCtx.fillStyle = "#fff";
-  carveEllipse(L[159], L[145], faceW * 0.15, faceW * 0.07, w, h); // 왼눈
-  carveEllipse(L[386], L[374], faceW * 0.15, faceW * 0.07, w, h); // 오른눈
-  carveEllipse(L[105], L[105], faceW * 0.16, faceW * 0.045, w, h); // 왼눈썹
-  carveEllipse(L[334], L[334], faceW * 0.16, faceW * 0.045, w, h); // 오른눈썹
-  carveEllipse(L[13],  L[14],  faceW * 0.22, faceW * 0.11, w, h); // 입
-  carveEllipse(L[2],   L[2],   faceW * 0.09, faceW * 0.045, w, h); // 콧방울
+  carveEllipse(L[159], L[145], faceW * 0.15, faceW * 0.07, w, h);   // 왼눈
+  carveEllipse(L[386], L[374], faceW * 0.15, faceW * 0.07, w, h);   // 오른눈
+  carveEllipse(L[105], L[105], faceW * 0.16, faceW * 0.045, w, h);  // 왼눈썹
+  carveEllipse(L[334], L[334], faceW * 0.16, faceW * 0.045, w, h);  // 오른눈썹
+  carveEllipse(L[13],  L[14],  faceW * 0.22, faceW * 0.11, w, h);   // 입
+  carveEllipse(L[2],   L[2],   faceW * 0.09, faceW * 0.045, w, h);  // 콧방울
   maskCtx.restore();
 }
 
@@ -448,10 +526,9 @@ function carveEllipse(top, bottom, rx, ry, w, h) {
   maskCtx.fill();
 }
 
-// ---- 사진 찍기 ----
 shotBtn.addEventListener("click", () => {
   flash.classList.remove("go");
-  void flash.offsetWidth; // 애니메이션 재시작 트릭
+  void flash.offsetWidth;
   flash.classList.add("go");
 
   const a = document.createElement("a");

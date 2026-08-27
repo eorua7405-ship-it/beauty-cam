@@ -472,11 +472,11 @@ void main() {
     spot *= 1.0 - smoothstep(0.09, 0.18, darker);
     spot *= smoothstep(0.12, 0.28, c.g);
     spot *= 1.0 - 0.5 * smoothstep(0.65, 0.85, avg.g);
-    spot *= 0.95 * uBlemish;
+    spot *= 0.70 * uBlemish;
 
     float brighter = c.g - avg.g;
     float glare = smoothstep(th * 0.5, th, brighter);
-    glare *= 0.85 * uBlemish;
+    glare *= 0.60 * uBlemish;
 
     // --- 마이크로 닷지 & 번: 색을 덮지 않고 '명암'만 주변과 맞춰 잡티를 지움 ---
     // 잡티가 보이는 원인은 주변과의 명암 차이. 곱셈 비율로 밝기만 맞추면
@@ -489,23 +489,28 @@ void main() {
     vec3 r = c * dnb;
     // 붉은 자국 같은 '색 얼룩'은 색조만 살짝 주변으로 (밝기·질감은 유지)
     vec3 toneMatch = avg * (dot(r, lw) / max(lumA, 0.02));
-    r = mix(r, toneMatch, spot * 0.45);
+    r = mix(r, toneMatch, spot * 0.35);
 
     // --- 주파수 분리 스무딩: 저주파(톤) 층만 부드럽게, 고주파(모공·결)는 잠금 ---
     float dev = abs(avg.g - c.g);
     float structural = smoothstep(0.035, 0.11, dev);
-    vec3 lowNew = mix(base, avg, uSmooth * 0.6 * (1.0 - structural));  // 톤 레이어만 섞음
+    vec3 lowNew = mix(base, avg, uSmooth * 0.75 * (1.0 - structural)); // 톤 레이어만 섞음
     vec3 hiKeep = r - base;                                            // 질감 레이어 (닷지앤번 반영됨)
-    r = lowNew + hiKeep * 0.92;                                        // 질감 92% 보존
+    r = lowNew + hiKeep * 0.86;                                        // 질감 86% 보존
 
     res = mix(c, r, m);
   }
 
-  // ===== 닷지 & 번 컨투어링: 실루엣 밴드에 은은한 음영 → 골격을 또렷하게 조각 =====
+  // ===== 닷지 & 번 컨투어링: 얼굴 '좌우 옆면'에만 은은한 음영 =====
+  // 실제 컨투어링처럼 턱 옆선·광대 옆에만 넣고, 이마 위·턱 끝은 제외
   if (uWarpAmt > 0.0001) {
     float mo2 = texture2D(uOval, vUV).a;
     float band2 = smoothstep(0.03, 0.45, mo2) * (1.0 - smoothstep(0.55, 0.95, mo2));
-    res *= 1.0 - band2 * 0.055;
+    if (band2 > 0.001) {
+      vec2 sd = vUV - uFaceC; sd.y *= uAspect;
+      float side = smoothstep(0.45, 0.8, abs(sd.x) / max(length(sd), 0.0001));
+      res *= 1.0 - band2 * side * 0.045;
+    }
   }
 
   // ===== 선명도 =====
@@ -638,8 +643,8 @@ function camPreviewFrame() {
   drawGL(video, {
     srcW: video.videoWidth, srcH: video.videoHeight,
     radius: Math.max(2.5, faceW * 0.030),
-    smooth: (skinOn && lastLandmarks) ? 0.60 : 0,
-    blemish: (blemishOn && lastLandmarks) ? 0.75 : 0,
+    smooth: (skinOn && lastLandmarks) ? 0.65 : 0,
+    blemish: (blemishOn && lastLandmarks) ? 0.60 : 0,
     film: 0.6,                                     // 프리뷰에서 필름 룩 미리 보기
     lens: LENS_MAP[focal],
     warp: contourParams(),
@@ -657,8 +662,8 @@ function captureHighRes() {
   drawGL(video, {
     srcW: video.videoWidth, srcH: video.videoHeight,
     radius: Math.max(2.5, faceW * 0.030),
-    smooth: (skinOn && lastLandmarks) ? 0.60 : 0,
-    blemish: (blemishOn && lastLandmarks) ? 0.75 : 0,
+    smooth: (skinOn && lastLandmarks) ? 0.65 : 0,
+    blemish: (blemishOn && lastLandmarks) ? 0.60 : 0,
     lens: LENS_MAP[focal],
     warp: contourParams(),
   });

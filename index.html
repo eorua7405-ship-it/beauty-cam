@@ -289,6 +289,8 @@ video.playsInline = true; video.muted = true;
 
 const maskCanvas = document.createElement("canvas");
 const maskCtx = maskCanvas.getContext("2d");
+const ovalCanvas = document.createElement("canvas");   // 윤곽 전용 (눈·입 구멍 없음, 워핑용)
+const ovalCtx = ovalCanvas.getContext("2d");
 const capCanvas = document.createElement("canvas");   // 고해상도 촬영 결과 (편집 원본)
 const capCtx = capCanvas.getContext("2d");
 
@@ -412,26 +414,25 @@ uniform vec3  uRGB;
 uniform float uWB;
 uniform float uTime;
 uniform float uLens;       // 화각별 렌즈 왜곡 (28mm 배럴 ~ 50mm 평탄)
+uniform sampler2D uOval;   // 윤곽 전용 마스크 (눈·입 구멍 없음)
 uniform float uWarpAmt;    // 윤곽 보정 강도
-uniform vec2  uWarpPL;     // 왼쪽 턱 포인트
-uniform vec2  uWarpPR;     // 오른쪽 턱 포인트
-uniform vec2  uWarpDL;     // 왼쪽 바깥 방향
-uniform vec2  uWarpDR;     // 오른쪽 바깥 방향
-uniform float uWarpRad;    // 영향 반경 제곱
+uniform vec2  uFaceC;      // 얼굴 중심 (uv 좌표)
 
 void main() {
   vec2 uv = vUV;
 
-  // ===== 윤곽 보정 (Evoto 스타일 은은한 V라인) =====
-  // 얼굴 마스크로 게이팅: 얼굴 안쪽 픽셀만 움직이고 배경은 완전히 고정 → 뒤 배경이 휘지 않음
+  // ===== 윤곽 보정: 얼굴 실루엣 전체(턱·광대·볼선)를 은은하게 정리 =====
+  // 윤곽 전용 마스크의 '경계 밴드'에서만 바깥쪽 콘텐츠를 당겨와
+  // 실루엣이 살짝 안으로 들어온다. 배경과 얼굴 중심부(눈코입)는 완전히 고정.
   if (uWarpAmt > 0.0001) {
-    float mw = smoothstep(0.0, 0.35, texture2D(uMask, vUV).a);
-    if (mw > 0.001) {
-      vec2 dL = uv - uWarpPL; dL.y *= uAspect;
-      vec2 dR = uv - uWarpPR; dR.y *= uAspect;
-      vec2 push = uWarpDL * exp(-dot(dL, dL) / uWarpRad)
-                + uWarpDR * exp(-dot(dR, dR) / uWarpRad);
-      uv += push * uWarpAmt * mw;
+    float mo = texture2D(uOval, vUV).a;
+    float band = smoothstep(0.03, 0.45, mo) * (1.0 - smoothstep(0.55, 0.95, mo));
+    if (band > 0.001) {
+      vec2 d = vUV - uFaceC; d.y *= uAspect;
+      float len = max(length(d), 0.0001);
+      vec2 dir = d / len;
+      dir.y /= uAspect;
+      uv += dir * uWarpAmt * band;
     }
   }
 
@@ -555,13 +556,14 @@ function initGLOnce() {
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
     return t;
   };
-  mkTex(0); mkTex(1);
+  mkTex(0); mkTex(1); mkTex(2);
   ["uFrame","uMask","uTexel","uAspect","uRadius","uSmooth","uBlemish","uFilm","uSharp",
    "uContrast","uSat","uRGB","uWB","uTime","uLens",
-   "uWarpAmt","uWarpPL","uWarpPR","uWarpDL","uWarpDR","uWarpRad"]
+   "uOval","uWarpAmt","uFaceC"]
     .forEach(n => uLoc[n] = gl.getUniformLocation(prog, n));
   gl.uniform1i(uLoc.uFrame, 0);
   gl.uniform1i(uLoc.uMask, 1);
+  gl.uniform1i(uLoc.uOval, 2);
   gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
   glReady = true;
   return true;
@@ -591,38 +593,18 @@ function drawGL(srcTex, opt) {
   gl.uniform1f(uLoc.uLens, opt.lens ?? 0);
   const wp = opt.warp;
   gl.uniform1f(uLoc.uWarpAmt, wp ? wp.amt : 0);
-  if (wp) {
-    gl.uniform2f(uLoc.uWarpPL, wp.pl[0], wp.pl[1]);
-    gl.uniform2f(uLoc.uWarpPR, wp.pr[0], wp.pr[1]);
-    gl.uniform2f(uLoc.uWarpDL, wp.dl[0], wp.dl[1]);
-    gl.uniform2f(uLoc.uWarpDR, wp.dr[0], wp.dr[1]);
-    gl.uniform1f(uLoc.uWarpRad, wp.rad);
-  }
+  if (wp) gl.uniform2f(uLoc.uFaceC, wp.cx, wp.cy);
   gl.drawArrays(gl.TRIANGLES, 0, 3);
 }
 
-// 윤곽 보정 파라미터 계산 (마스크 좌표계 = 원본 uv, 화면은 나중에 미러링됨)
+// 윤곽 보정 파라미터: 얼굴 중심과 은은한 강도(얼굴 폭의 약 1%)만 전달
 function contourParams() {
   if (!contourOn || !lastLandmarks) return null;
   const L = lastLandmarks;
-  const cx = (L[234].x + L[454].x) / 2;
   const faceWuv = Math.abs(L[454].x - L[234].x);
-  const mk = (idx) => {
-    const p = L[idx];
-    // GL 텍스처는 위아래가 뒤집혀 있으므로 y 반전
-    const pos = [p.x, 1 - p.y];
-    let d = [p.x - cx, 0];
-    const len = Math.hypot(d[0], d[1]) || 1;
-    d = [d[0] / len, d[1] / len];   // 얼굴 바깥 방향
-    return { pos, d };
-  };
-  const jl = mk(172), jr = mk(397);   // 좌우 턱선 포인트
-  return {
-    amt: faceWuv * 0.035,             // Evoto 수준의 은은한 강도
-    pl: jl.pos, dl: jl.d,
-    pr: jr.pos, dr: jr.d,
-    rad: Math.pow(faceWuv * 0.42, 2),
-  };
+  const cx = (L[234].x + L[454].x) / 2;
+  const cy = 1 - (L[10].y + L[152].y) / 2;   // GL 텍스처는 상하 반전
+  return { amt: faceWuv * 0.011, cx, cy };
 }
 
 /* ===== 촬영 프리뷰 ===== */
@@ -728,12 +710,14 @@ async function startStream() {
   await video.play();
   out.width = Math.round(video.videoWidth * PREVIEW_SCALE);
   out.height = Math.round(video.videoHeight * PREVIEW_SCALE);
-  maskCanvas.width = Math.round(video.videoWidth / 5);
-  maskCanvas.height = Math.round(video.videoHeight / 5);
+  maskCanvas.width = ovalCanvas.width = Math.round(video.videoWidth / 5);
+  maskCanvas.height = ovalCanvas.height = Math.round(video.videoHeight / 5);
   glOK = initGLOnce();
   if (glOK) {
     gl.activeTexture(gl.TEXTURE1);
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, maskCanvas);
+    gl.activeTexture(gl.TEXTURE2);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, ovalCanvas);
   }
   lastLandmarks = null; maskDirty = false;
   tryFocus("continuous");
@@ -831,37 +815,45 @@ function buildFaceMaskIfNeeded() {
   buildFaceMask(maskCanvas.width, maskCanvas.height);
   gl.activeTexture(gl.TEXTURE1);
   gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, maskCanvas);
+  gl.activeTexture(gl.TEXTURE2);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, ovalCanvas);
   maskDirty = false;
 }
 
 function buildFaceMask(w, h) {
-  maskCtx.clearRect(0, 0, w, h);
   const L = lastLandmarks;
-  maskCtx.save();
-  maskCtx.filter = "blur(" + w * 0.015 + "px)";
-  maskCtx.fillStyle = "#fff";
-  maskCtx.beginPath();
+  const faceW = Math.abs(L[454].x - L[234].x) * w;
+
+  // --- 윤곽 전용 마스크: 얼굴 타원 + 코, 넓은 소프트 엣지 (워핑 밴드가 됨) ---
+  ovalCtx.clearRect(0, 0, w, h);
+  ovalCtx.save();
+  ovalCtx.filter = "blur(" + w * 0.028 + "px)";
+  ovalCtx.fillStyle = "#fff";
+  ovalCtx.beginPath();
   FACE_OVAL.forEach((idx, i) => {
     const p = L[idx];
-    i === 0 ? maskCtx.moveTo(p.x * w, p.y * h) : maskCtx.lineTo(p.x * w, p.y * h);
+    i === 0 ? ovalCtx.moveTo(p.x * w, p.y * h) : ovalCtx.lineTo(p.x * w, p.y * h);
   });
-  maskCtx.closePath();
-  maskCtx.fill();
-  maskCtx.restore();
+  ovalCtx.closePath();
+  ovalCtx.fill();
+  ovalCtx.restore();
 
-  const faceW = Math.abs(L[454].x - L[234].x) * w;
   const nTop = L[168], nBot = L[2];
   const ncx = (nTop.x + nBot.x) / 2 * w, ncy = (nTop.y + nBot.y) / 2 * h;
   const ndx = (nBot.x - nTop.x) * w, ndy = (nBot.y - nTop.y) * h;
   const nLen = Math.hypot(ndx, ndy);
   const nAng = Math.atan2(ndy, ndx) - Math.PI / 2;
-  maskCtx.save();
-  maskCtx.filter = "blur(" + w * 0.01 + "px)";
-  maskCtx.fillStyle = "#fff";
-  maskCtx.beginPath();
-  maskCtx.ellipse(ncx, ncy, faceW * 0.14, nLen * 0.8, nAng, 0, Math.PI * 2);
-  maskCtx.fill();
-  maskCtx.restore();
+  ovalCtx.save();
+  ovalCtx.filter = "blur(" + w * 0.01 + "px)";
+  ovalCtx.fillStyle = "#fff";
+  ovalCtx.beginPath();
+  ovalCtx.ellipse(ncx, ncy, faceW * 0.14, nLen * 0.8, nAng, 0, Math.PI * 2);
+  ovalCtx.fill();
+  ovalCtx.restore();
+
+  // --- 피부 보정용 마스크: 윤곽 마스크 복사 후 눈·눈썹·입 파내기 ---
+  maskCtx.clearRect(0, 0, w, h);
+  maskCtx.drawImage(ovalCanvas, 0, 0);
 
   maskCtx.save();
   maskCtx.globalCompositeOperation = "destination-out";

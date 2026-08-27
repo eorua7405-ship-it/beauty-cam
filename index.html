@@ -87,6 +87,11 @@
     z-index: 10;
   }
 
+  .filmbar { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+  .pillrow.sliderrow { align-items: center; gap: 10px; padding: 8px 16px; width: min(88vw, 340px); }
+  .slabel { font-size: 12px; font-weight: 500; color: var(--text-dim); flex: 0 0 auto; }
+  .sval { font-size: 12px; color: var(--accent); flex: 0 0 28px; text-align: right; }
+  .pillrow.sliderrow input[type="range"] { flex: 1; }
   .pillrow {
     display: flex; gap: 6px;
     background: var(--glass); backdrop-filter: blur(8px);
@@ -214,6 +219,21 @@
       <button class="pill on" id="tgContour">윤곽</button>
       <button class="pill on" id="tgFilm">필름</button>
     </div>
+    <!-- 필름 프리셋 + 세기 (필름 ON일 때만 표시) -->
+    <div class="filmbar" id="filmBar">
+      <div class="pillrow" id="filmPresets" role="group" aria-label="필름 프리셋">
+        <button class="pill on" data-fp="0">필름1</button>
+        <button class="pill" data-fp="1">필름2</button>
+        <button class="pill" data-fp="2">필름3</button>
+        <button class="pill" data-fp="3">필름4</button>
+      </div>
+      <div class="pillrow sliderrow">
+        <span class="slabel">세기</span>
+        <input type="range" id="filmStrength" min="0" max="100" value="60" />
+        <output class="sval" id="filmStrengthVal">60</output>
+      </div>
+    </div>
+
     <!-- 셔터스피드 -->
     <div class="pillrow" role="group" aria-label="셔터스피드">
       <button class="pill on" data-ss="auto">SS 오토</button>
@@ -282,6 +302,7 @@ let useFlash = true;
 let focal = 28, hwZoom = false;
 let ssChoice = "auto";
 let skinOn = true, blemishOn = true, contourOn = true, filmOn = true;
+let filmPreset = 0, filmStrength = 0.6;
 let mode = "cam";   // cam | edit
 let landmarker = null, lastLandmarks = null;
 
@@ -290,8 +311,8 @@ video.playsInline = true; video.muted = true;
 
 const maskCanvas = document.createElement("canvas");
 const maskCtx = maskCanvas.getContext("2d");
-const ovalCanvas = document.createElement("canvas");   // 윤곽 전용 (눈·입 구멍 없음, 워핑용)
-const ovalCtx = ovalCanvas.getContext("2d");
+const warpCanvas = document.createElement("canvas");   // 윤곽 변위 맵 (실루엣 평탄화 벡터장)
+const warpCtx = warpCanvas.getContext("2d");
 const capCanvas = document.createElement("canvas");   // 고해상도 촬영 결과 (편집 원본)
 const capCtx = capCanvas.getContext("2d");
 
@@ -320,7 +341,22 @@ document.querySelector("#editScreen .seg").addEventListener("click", (e) => {
 $("tgSkin").addEventListener("click", (e) => { skinOn = !skinOn; e.target.classList.toggle("on", skinOn); });
 $("tgBlemish").addEventListener("click", (e) => { blemishOn = !blemishOn; e.target.classList.toggle("on", blemishOn); });
 $("tgContour").addEventListener("click", (e) => { contourOn = !contourOn; e.target.classList.toggle("on", contourOn); });
-$("tgFilm").addEventListener("click", (e) => { filmOn = !filmOn; e.target.classList.toggle("on", filmOn); });
+$("tgFilm").addEventListener("click", (e) => {
+  filmOn = !filmOn;
+  e.target.classList.toggle("on", filmOn);
+  $("filmBar").style.display = filmOn ? "flex" : "none";
+});
+$("filmPresets").addEventListener("click", (e) => {
+  const btn = e.target.closest(".pill");
+  if (!btn) return;
+  document.querySelectorAll("#filmPresets .pill").forEach(b => b.classList.remove("on"));
+  btn.classList.add("on");
+  filmPreset = Number(btn.dataset.fp);
+});
+$("filmStrength").addEventListener("input", (e) => {
+  filmStrength = e.target.value / 100;
+  $("filmStrengthVal").textContent = e.target.value;
+});
 
 document.querySelector('[aria-label="셔터스피드"]').addEventListener("click", (e) => {
   const btn = e.target.closest(".pill");
@@ -415,33 +451,24 @@ uniform float uSat;
 uniform vec3  uRGB;
 uniform float uWB;
 uniform float uTime;
+uniform vec2  uFmTone;     // 필름 톤커브 (스케일, 리프트)
+uniform float uFmSat;      // 필름 채도 감쇄
+uniform vec3  uFmHi;       // 하이라이트 틴트
+uniform vec3  uFmSh;       // 섀도 틴트
+uniform float uFmGrain;    // 그레인 세기
+uniform float uFmVig;      // 비네트 세기
 uniform float uLens;       // 화각별 렌즈 왜곡 (28mm 배럴 ~ 50mm 평탄)
-uniform sampler2D uOval;   // 윤곽 전용 마스크 (눈·입 구멍 없음)
-uniform float uWarpAmt;    // 윤곽 보정 강도
-uniform vec2  uFaceC;      // 얼굴 중심 (uv 좌표)
-uniform float uNoseGate;   // 코 방향 억제 (부호=코 방향, 크기=고개 각도)
-uniform float uInvFaceW;   // 1 / 얼굴 폭 (uv)
+uniform sampler2D uWarp;   // 윤곽 변위 맵 (실루엣 평탄화 벡터, RG 인코딩)
+uniform float uWarpAmt;    // 윤곽 보정 on/off
 
 void main() {
   vec2 uv = vUV;
 
-  // ===== 윤곽 보정: 얼굴 실루엣 전체(턱·광대·볼선)를 은은하게 정리 =====
-  // 윤곽 전용 마스크의 '경계 밴드'에서만 바깥쪽 콘텐츠를 당겨와
-  // 실루엣이 살짝 안으로 들어온다. 배경과 얼굴 중심부(눈코입)는 완전히 고정.
-  if (uWarpAmt > 0.0001) {
-    float mo = texture2D(uOval, vUV).a;
-    float band = smoothstep(0.03, 0.45, mo) * (1.0 - smoothstep(0.55, 0.95, mo));
-    if (band > 0.001) {
-      vec2 d = vUV - uFaceC; d.y *= uAspect;
-      float len = max(length(d), 0.0001);
-      vec2 dir = d / len;
-      dir.y /= uAspect;
-      // 옆모습이면 코 방향 실루엣(콧대·입 라인)은 제외하고
-      // 반대쪽 광대·턱·볼선은 그대로 부드럽게 보정
-      float toNose = clamp((vUV.x - uFaceC.x) * sign(uNoseGate) * uInvFaceW * 2.0, 0.0, 1.0);
-      float keep = 1.0 - toNose * abs(uNoseGate);
-      uv += dir * uWarpAmt * band * keep;
-    }
+  // ===== 윤곽 보정: 실루엣의 튀어나온 부분(광대 모서리·각진 턱)을 평탄화 =====
+  // JS에서 계산한 변위 맵을 샘플. 튀어나온 지점만 매끈한 기준선 쪽으로 당겨진다.
+  if (uWarpAmt > 0.5) {
+    vec2 wv = texture2D(uWarp, vUV).rg;
+    uv -= (wv - vec2(128.0 / 255.0)) * 0.08;
   }
 
   // ===== 화각 렌즈 느낌: 28mm 배럴 왜곡(가장자리 볼록) ~ 50mm 평탄 =====
@@ -510,18 +537,6 @@ void main() {
     res = mix(c, r, m);
   }
 
-  // ===== 닷지 & 번 컨투어링: 얼굴 '좌우 옆면'에만 은은한 음영 =====
-  // 실제 컨투어링처럼 턱 옆선·광대 옆에만 넣고, 이마 위·턱 끝은 제외
-  if (uWarpAmt > 0.0001) {
-    float mo2 = texture2D(uOval, vUV).a;
-    float band2 = smoothstep(0.03, 0.45, mo2) * (1.0 - smoothstep(0.55, 0.95, mo2));
-    if (band2 > 0.001) {
-      vec2 sd = vUV - uFaceC; sd.y *= uAspect;
-      float side = smoothstep(0.45, 0.8, abs(sd.x) / max(length(sd), 0.0001));
-      float toNose2 = clamp((vUV.x - uFaceC.x) * sign(uNoseGate) * uInvFaceW * 2.0, 0.0, 1.0);
-      res *= 1.0 - band2 * side * 0.045 * (1.0 - toNose2 * abs(uNoseGate));
-    }
-  }
 
   // ===== 선명도 =====
   if (uSharp > 0.001) {
@@ -540,28 +555,20 @@ void main() {
   float sl = dot(res, vec3(0.299, 0.587, 0.114));
   res = mix(vec3(sl), res, uSat);
 
-  // ===== 필름 그레이드: 레퍼런스 사진 실측 기반 프리셋 =====
-  // 측정값: 블랙 4.5% 리프트, 화이트 92% 압축, 하이라이트 웜 크림(R+3%/B-3%),
-  //         섀도 브라운(B-20%), 저채도, 저콘트라스트, 비네트 최소, 고운 그레인
+  // ===== 필름 그레이드: 프리셋 파라미터 기반 (레퍼런스 실측값) =====
   if (uFilm > 0.005) {
     vec3 f = res;
     float fl = dot(f, vec3(0.299, 0.587, 0.114));
-    // 톤 커브: 페이드 (0→0.045, 1→0.92 로 매핑)
-    f = f * (1.0 - 0.125 * uFilm) + vec3(0.045 * uFilm);
-    // 저채도
-    f = mix(f, vec3(dot(f, vec3(0.299, 0.587, 0.114))), 0.14 * uFilm);
-    // 스플릿 토닝 1: 하이라이트 → 웜 크림
+    f = f * mix(1.0, uFmTone.x, uFilm) + vec3(uFmTone.y * uFilm);      // 페이드 톤커브
+    f = mix(f, vec3(dot(f, vec3(0.299, 0.587, 0.114))), uFmSat * uFilm); // 채도
     float hl = smoothstep(0.55, 0.9, fl);
-    f *= mix(vec3(1.0), vec3(1.032, 1.0, 0.968), hl * uFilm);
-    // 스플릿 토닝 2: 섀도 → 따뜻한 브라운 (블루 억제 — 이 룩의 핵심)
+    f *= mix(vec3(1.0), uFmHi, hl * uFilm);                             // 하이라이트 틴트
     float shd = 1.0 - smoothstep(0.1, 0.45, fl);
-    f *= mix(vec3(1.0), vec3(0.99, 1.0, 0.86), shd * uFilm);
-    // 비네트: 레퍼런스는 거의 없음 → 아주 약하게만
+    f *= mix(vec3(1.0), uFmSh, shd * uFilm);                            // 섀도 틴트
     vec2 dv = vUV - 0.5;
-    f *= 1.0 - dot(dv, dv) * 0.22 * uFilm;
-    // 고운 그레인
+    f *= 1.0 - dot(dv, dv) * uFmVig * uFilm;                            // 비네트
     float g = fract(sin(dot(gl_FragCoord.xy + vec2(uTime * 617.0), vec2(12.9898, 78.233))) * 43758.5453) - 0.5;
-    f += g * 0.04 * uFilm;
+    f += g * uFmGrain * uFilm;                                          // 그레인
     res = f;
   }
 
@@ -603,11 +610,12 @@ function initGLOnce() {
   mkTex(0); mkTex(1); mkTex(2);
   ["uFrame","uMask","uTexel","uAspect","uRadius","uSmooth","uBlemish","uFilm","uSharp",
    "uContrast","uSat","uRGB","uWB","uTime","uLens",
-   "uOval","uWarpAmt","uFaceC","uNoseGate","uInvFaceW"]
+   "uWarp","uWarpAmt",
+   "uFmTone","uFmSat","uFmHi","uFmSh","uFmGrain","uFmVig"]
     .forEach(n => uLoc[n] = gl.getUniformLocation(prog, n));
   gl.uniform1i(uLoc.uFrame, 0);
   gl.uniform1i(uLoc.uMask, 1);
-  gl.uniform1i(uLoc.uOval, 2);
+  gl.uniform1i(uLoc.uWarp, 2);
   gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
   glReady = true;
   return true;
@@ -615,6 +623,14 @@ function initGLOnce() {
 
 // 화각별 렌즈 왜곡 계수 (28mm = 배럴, 50mm = 살짝 평탄)
 const LENS_MAP = { 28: -0.13, 35: 0.0, 50: 0.06 };
+
+// 필름 프리셋 — 레퍼런스 사진들에서 실측한 4가지 계열
+const FILM_PRESETS = [
+  { name: "필름1", tone: [0.875, 0.045], sat: 0.14, hi: [1.032, 1.0, 0.968], sh: [0.99, 1.0, 0.86], grain: 0.040, vig: 0.22 },  // 크림
+  { name: "필름2", tone: [0.830, 0.075], sat: 0.30, hi: [1.020, 1.0, 0.985], sh: [1.00, 1.0, 0.90], grain: 0.030, vig: 0.15 },  // 소프트
+  { name: "필름3", tone: [0.900, 0.030], sat: 0.10, hi: [1.050, 1.0, 0.955], sh: [0.97, 1.0, 0.72], grain: 0.055, vig: 0.30 },  // 도쿄
+  { name: "필름4", tone: [0.880, 0.060], sat: 0.00, hi: [1.010, 1.0, 0.900], sh: [1.00, 1.0, 1.02], grain: 0.050, vig: 0.25 },  // 35mm
+];
 
 // 공통 유니폼 설정 후 1프레임 그리기
 function drawGL(srcTex, opt) {
@@ -634,29 +650,78 @@ function drawGL(srcTex, opt) {
   gl.uniform3f(uLoc.uRGB, ...(opt.rgb ?? [1, 1, 1]));
   gl.uniform1f(uLoc.uWB, opt.wb ?? 0);
   gl.uniform1f(uLoc.uTime, opt.time ?? 0.5);
+  const fm = opt.fm ?? FILM_PRESETS[0];
+  gl.uniform2f(uLoc.uFmTone, fm.tone[0], fm.tone[1]);
+  gl.uniform1f(uLoc.uFmSat, fm.sat);
+  gl.uniform3f(uLoc.uFmHi, fm.hi[0], fm.hi[1], fm.hi[2]);
+  gl.uniform3f(uLoc.uFmSh, fm.sh[0], fm.sh[1], fm.sh[2]);
+  gl.uniform1f(uLoc.uFmGrain, fm.grain);
+  gl.uniform1f(uLoc.uFmVig, fm.vig);
   gl.uniform1f(uLoc.uLens, opt.lens ?? 0);
-  const wp = opt.warp;
-  gl.uniform1f(uLoc.uWarpAmt, wp ? wp.amt : 0);
-  if (wp) {
-    gl.uniform2f(uLoc.uFaceC, wp.cx, wp.cy);
-    gl.uniform1f(uLoc.uNoseGate, wp.gate);
-    gl.uniform1f(uLoc.uInvFaceW, wp.invW);
-  }
+  gl.uniform1f(uLoc.uWarpAmt, opt.warp ? 1 : 0);
   gl.drawArrays(gl.TRIANGLES, 0, 3);
 }
 
-// 윤곽 보정 파라미터.
-// 옆모습에서도 꺼지지 않는다: 고개 방향(코가 향한 쪽)을 감지해서
-// 코 쪽 실루엣만 셰이더에서 제외하고, 반대쪽 광대·턱은 계속 보정한다.
-function contourParams() {
-  if (!contourOn || !lastLandmarks) return null;
+// 윤곽 변위 맵 계산: 실루엣 36점을 가우시안 스무딩한 '매끈한 기준선'을 만들고,
+// 실제 선이 기준선에서 튀어나온 만큼의 40%를 당기는 변위 벡터장을 그린다.
+// 옆모습에서는 코 방향 실루엣(콧대·입)은 보호한다.
+function computeWarpMap(w, hh) {
   const L = lastLandmarks;
-  const faceWuv = Math.abs(L[454].x - L[234].x);
+  const n = FACE_OVAL.length;
+  const faceW = Math.abs(L[454].x - L[234].x);
   const cx = (L[234].x + L[454].x) / 2;
-  const cy = 1 - (L[10].y + L[152].y) / 2;
-  const yaw = (L[4].x - cx) / Math.max(faceWuv, 0.001);        // 부호 있는 고개 각도
-  const gate = Math.sign(yaw) * Math.min(1, Math.abs(yaw) * 3.0);
-  return { amt: faceWuv * 0.011, cx, cy, gate, invW: 1 / Math.max(faceWuv, 0.001) };
+  const yaw = (L[4].x - cx) / Math.max(faceW, 0.001);
+  const noseSign = Math.sign(yaw), yaw01 = Math.min(1, Math.abs(yaw) * 3);
+
+  const P = FACE_OVAL.map(idx => [L[idx].x, L[idx].y]);
+  const GW = [1, 4, 8, 12, 14, 12, 8, 4, 1], gsum = 64;   // 스무딩 가중치 (±4점)
+  const D = P.map((_, i) => {
+    let sx = 0, sy = 0;
+    for (let k = -4; k <= 4; k++) {
+      const p = P[(i + k + n) % n]; const g = GW[k + 4];
+      sx += p[0] * g; sy += p[1] * g;
+    }
+    sx /= gsum; sy /= gsum;
+    const toNose = Math.max(0, Math.min(1, (P[i][0] - cx) * noseSign / faceW * 2));
+    const s = 0.40 * (1 - toNose * yaw01);   // 튀어나온 정도의 40%만, 코 방향은 보호
+    return [(sx - P[i][0]) * s, (sy - P[i][1]) * s];
+  });
+
+  const img = warpCtx.createImageData(w, hh);
+  const data = img.data;
+  for (let i = 0; i < data.length; i += 4) { data[i] = 128; data[i + 1] = 128; data[i + 3] = 255; }
+
+  const asp = hh / w;                      // 세로 정규화 보정
+  const sigma = faceW * 0.09;              // 각 점의 영향 반경
+  const acc = new Float32Array(w * hh * 3);
+  for (let i = 0; i < n; i++) {
+    const px = P[i][0], py = P[i][1], r = sigma * 2.5;
+    const x0 = Math.max(0, (px - r) * w | 0), x1 = Math.min(w - 1, Math.ceil((px + r) * w));
+    const y0 = Math.max(0, (py - r / asp) * hh | 0), y1 = Math.min(hh - 1, Math.ceil((py + r / asp) * hh));
+    for (let y = y0; y <= y1; y++) {
+      const ddy = (y / hh - py) * asp;
+      for (let x = x0; x <= x1; x++) {
+        const ddx = x / w - px;
+        const d2 = ddx * ddx + ddy * ddy;
+        const wgt = Math.exp(-d2 / (2 * sigma * sigma));
+        if (wgt < 0.02) continue;
+        const o = (y * w + x) * 3;
+        acc[o] += D[i][0] * wgt; acc[o + 1] += D[i][1] * wgt; acc[o + 2] += wgt;
+      }
+    }
+  }
+  const K = 0.04;   // 셰이더 디코딩 스케일과 일치 (0.08 = 2K)
+  for (let p = 0; p < w * hh; p++) {
+    const wsum = acc[p * 3 + 2];
+    if (wsum < 0.02) continue;
+    const env = Math.min(1, wsum / 0.3);
+    const dx = acc[p * 3] / wsum * env;
+    const dy = acc[p * 3 + 1] / wsum * env;
+    // GL의 uv는 y가 반대이므로 dy 부호 반전해서 저장
+    data[p * 4]     = Math.max(0, Math.min(255, 128 + (dx / K) * 127));
+    data[p * 4 + 1] = Math.max(0, Math.min(255, 128 + (-dy / K) * 127));
+  }
+  warpCtx.putImageData(img, 0, 0);
 }
 
 /* ===== 촬영 프리뷰 ===== */
@@ -673,9 +738,10 @@ function camPreviewFrame() {
     radius: Math.max(2.5, faceW * 0.030),
     smooth: (skinOn && lastLandmarks) ? 0.65 : 0,
     blemish: (blemishOn && lastLandmarks) ? 0.60 : 0,
-    film: filmOn ? 0.6 : 0,                        // 필름 토글 연동
+    film: filmOn ? filmStrength : 0,
+    fm: FILM_PRESETS[filmPreset],
     lens: LENS_MAP[focal],
-    warp: contourParams(),
+    warp: contourOn && !!lastLandmarks,
     time: (performance.now() % 10000) / 10000,
   });
   return glCanvas;
@@ -693,8 +759,9 @@ function captureHighRes() {
     smooth: (skinOn && lastLandmarks) ? 0.65 : 0,
     blemish: (blemishOn && lastLandmarks) ? 0.60 : 0,
     lens: LENS_MAP[focal],
-    warp: contourParams(),
-    film: filmOn ? 0.6 : 0,                        // 필름 프리셋을 사진에 직접 굽기
+    warp: contourOn && !!lastLandmarks,
+    film: filmOn ? filmStrength : 0,               // 필름 프리셋을 사진에 직접 굽기
+    fm: FILM_PRESETS[filmPreset],
     time: (performance.now() % 10000) / 10000,     // 그레인은 사진에 고정
   });
 
@@ -728,6 +795,7 @@ function editRender() {
   drawGL(capCanvas, {
     srcW: capCanvas.width, srcH: capCanvas.height,
     film: S.film.value / 100,
+    fm: FILM_PRESETS[filmPreset],
     sharp: S.sharp.value / 100 * 1.1,
     contrast: S.contrast.value / 100,
     sat: S.sat.value / 100,
@@ -764,14 +832,16 @@ async function startStream() {
   await video.play();
   out.width = Math.round(video.videoWidth * PREVIEW_SCALE);
   out.height = Math.round(video.videoHeight * PREVIEW_SCALE);
-  maskCanvas.width = ovalCanvas.width = Math.round(video.videoWidth / 5);
-  maskCanvas.height = ovalCanvas.height = Math.round(video.videoHeight / 5);
+  maskCanvas.width = warpCanvas.width = Math.round(video.videoWidth / 5);
+  maskCanvas.height = warpCanvas.height = Math.round(video.videoHeight / 5);
   glOK = initGLOnce();
   if (glOK) {
     gl.activeTexture(gl.TEXTURE1);
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, maskCanvas);
+    warpCtx.fillStyle = "rgb(128,128,0)";   // 중립 변위 (이동 없음)
+    warpCtx.fillRect(0, 0, warpCanvas.width, warpCanvas.height);
     gl.activeTexture(gl.TEXTURE2);
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, ovalCanvas);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, warpCanvas);
   }
   lastLandmarks = null; maskDirty = false;
   tryFocus("continuous");
@@ -869,45 +939,42 @@ function buildFaceMaskIfNeeded() {
   buildFaceMask(maskCanvas.width, maskCanvas.height);
   gl.activeTexture(gl.TEXTURE1);
   gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, maskCanvas);
-  gl.activeTexture(gl.TEXTURE2);
-  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, ovalCanvas);
+  if (contourOn) {
+    computeWarpMap(warpCanvas.width, warpCanvas.height);
+    gl.activeTexture(gl.TEXTURE2);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, warpCanvas);
+  }
   maskDirty = false;
 }
 
 function buildFaceMask(w, h) {
+  maskCtx.clearRect(0, 0, w, h);
   const L = lastLandmarks;
-  const faceW = Math.abs(L[454].x - L[234].x) * w;
-
-  // --- 윤곽 전용 마스크: 얼굴 타원 + 코, 넓은 소프트 엣지 (워핑 밴드가 됨) ---
-  ovalCtx.clearRect(0, 0, w, h);
-  ovalCtx.save();
-  ovalCtx.filter = "blur(" + w * 0.028 + "px)";
-  ovalCtx.fillStyle = "#fff";
-  ovalCtx.beginPath();
+  maskCtx.save();
+  maskCtx.filter = "blur(" + w * 0.015 + "px)";
+  maskCtx.fillStyle = "#fff";
+  maskCtx.beginPath();
   FACE_OVAL.forEach((idx, i) => {
     const p = L[idx];
-    i === 0 ? ovalCtx.moveTo(p.x * w, p.y * h) : ovalCtx.lineTo(p.x * w, p.y * h);
+    i === 0 ? maskCtx.moveTo(p.x * w, p.y * h) : maskCtx.lineTo(p.x * w, p.y * h);
   });
-  ovalCtx.closePath();
-  ovalCtx.fill();
-  ovalCtx.restore();
+  maskCtx.closePath();
+  maskCtx.fill();
+  maskCtx.restore();
 
+  const faceW = Math.abs(L[454].x - L[234].x) * w;
   const nTop = L[168], nBot = L[2];
   const ncx = (nTop.x + nBot.x) / 2 * w, ncy = (nTop.y + nBot.y) / 2 * h;
   const ndx = (nBot.x - nTop.x) * w, ndy = (nBot.y - nTop.y) * h;
   const nLen = Math.hypot(ndx, ndy);
   const nAng = Math.atan2(ndy, ndx) - Math.PI / 2;
-  ovalCtx.save();
-  ovalCtx.filter = "blur(" + w * 0.01 + "px)";
-  ovalCtx.fillStyle = "#fff";
-  ovalCtx.beginPath();
-  ovalCtx.ellipse(ncx, ncy, faceW * 0.14, nLen * 0.8, nAng, 0, Math.PI * 2);
-  ovalCtx.fill();
-  ovalCtx.restore();
-
-  // --- 피부 보정용 마스크: 윤곽 마스크 복사 후 눈·눈썹·입 파내기 ---
-  maskCtx.clearRect(0, 0, w, h);
-  maskCtx.drawImage(ovalCanvas, 0, 0);
+  maskCtx.save();
+  maskCtx.filter = "blur(" + w * 0.01 + "px)";
+  maskCtx.fillStyle = "#fff";
+  maskCtx.beginPath();
+  maskCtx.ellipse(ncx, ncy, faceW * 0.14, nLen * 0.8, nAng, 0, Math.PI * 2);
+  maskCtx.fill();
+  maskCtx.restore();
 
   maskCtx.save();
   maskCtx.globalCompositeOperation = "destination-out";

@@ -25,6 +25,7 @@ let focal = 28, hwZoom = false;
 let ssChoice = "auto";
 let skinOn = true, blemishOn = true, contourOn = true, wrinkleOn = true, filmOn = true;
 let filmPreset = 0, filmStrength = 0.6;
+let skinAmt = 0.6, blemAmt = 0.6;   // 피부결·잡티 세기 (슬라이더 100 = 최대 강도)
 let mode = "cam";   // cam | edit
 let landmarker = null, lastLandmarks = null;
 
@@ -75,6 +76,14 @@ $("filmPresets").addEventListener("click", (e) => {
   document.querySelectorAll("#filmPresets .pill").forEach(b => b.classList.remove("on"));
   btn.classList.add("on");
   filmPreset = Number(btn.dataset.fp);
+});
+$("skinAmt").addEventListener("input", (e) => {
+  skinAmt = e.target.value / 100;
+  $("skinAmtVal").textContent = e.target.value;
+});
+$("blemAmt").addEventListener("input", (e) => {
+  blemAmt = e.target.value / 100;
+  $("blemAmtVal").textContent = e.target.value;
 });
 $("filmStrength").addEventListener("input", (e) => {
   filmStrength = e.target.value / 100;
@@ -210,7 +219,9 @@ float foldW(vec2 p, vec4 seg, float rad, float aspect) {
   pa.y *= aspect; ba.y *= aspect;
   float t = clamp(dot(pa, ba) / max(dot(ba, ba), 0.000001), 0.0, 1.0);
   vec2 d = pa - ba * t;
-  return 1.0 - smoothstep(rad * 0.25, rad, length(d));
+  float w = 1.0 - smoothstep(rad * 0.25, rad, length(d));
+  w *= 1.0 - smoothstep(0.65, 1.0, t);   // 입꼬리 방향 끝은 부드럽게 소멸 ('조커' 방지)
+  return w;
 }
 
 void main() {
@@ -452,10 +463,12 @@ function foldParams() {
   const L = lastLandmarks;
   const faceWuv = Math.abs(L[454].x - L[234].x);
   const mk = (corner) => {
-    const top = [L[2].x + (corner.x - L[2].x) * 0.55,
-                 L[2].y + (corner.y - L[2].y) * 0.18];
-    const bot = [corner.x + (corner.x - L[13].x) * 0.30,
-                 corner.y + 0.012];
+    // 시작: 콧방울 바로 옆 높이 (팔자주름의 실제 시작점)
+    const top = [L[2].x + (corner.x - L[2].x) * 0.50,
+                 L[2].y + (corner.y - L[2].y) * 0.05];
+    // 끝: 입꼬리에 닿기 전 옆쪽에서 멈춤 (입꼬리가 밝아지는 '조커' 현상 방지)
+    const bot = [corner.x + (corner.x - L[13].x) * 0.12,
+                 corner.y - (corner.y - L[2].y) * 0.12];
     return [top[0], 1 - top[1], bot[0], 1 - bot[1]];
   };
   return { l: mk(L[61]), r: mk(L[291]), rad: faceWuv * 0.05 };
@@ -549,8 +562,8 @@ function camPreviewFrame() {
   drawGL(video, {
     srcW: video.videoWidth, srcH: video.videoHeight,
     radius: Math.max(2.5, faceW * 0.030),
-    smooth: (skinOn && lastLandmarks) ? 0.65 : 0,
-    blemish: (blemishOn && lastLandmarks) ? 0.60 : 0,
+    smooth: (skinOn && lastLandmarks) ? 0.65 * skinAmt : 0,
+    blemish: (blemishOn && lastLandmarks) ? 0.60 * blemAmt : 0,
     film: filmOn ? filmStrength : 0,
     fm: FILM_PRESETS[filmPreset],
     wb: wbCam,
@@ -571,8 +584,8 @@ function captureHighRes() {
   drawGL(video, {
     srcW: video.videoWidth, srcH: video.videoHeight,
     radius: Math.max(2.5, faceW * 0.030),
-    smooth: (skinOn && lastLandmarks) ? 0.65 : 0,
-    blemish: (blemishOn && lastLandmarks) ? 0.60 : 0,
+    smooth: (skinOn && lastLandmarks) ? 0.65 * skinAmt : 0,
+    blemish: (blemishOn && lastLandmarks) ? 0.60 * blemAmt : 0,
     lens: LENS_MAP[focal],
     warp: contourOn && !!lastLandmarks,
     fold: foldParams(),

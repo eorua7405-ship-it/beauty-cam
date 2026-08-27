@@ -38,6 +38,20 @@
       <button class="pill on" id="tgWrinkle">주름</button>
       <button class="pill on" id="tgFilm">필름</button>
     </div>
+    <!-- 피부 보정 세기 (튜닝용 슬라이더) -->
+    <div class="filmbar" id="skinBar">
+      <div class="pillrow sliderrow">
+        <span class="slabel">피부결</span>
+        <input type="range" id="skinAmt" min="0" max="100" value="60" />
+        <output class="sval" id="skinAmtVal">60</output>
+      </div>
+      <div class="pillrow sliderrow">
+        <span class="slabel">잡티</span>
+        <input type="range" id="blemAmt" min="0" max="100" value="60" />
+        <output class="sval" id="blemAmtVal">60</output>
+      </div>
+    </div>
+
     <!-- 화이트 밸런스 (☀ 버튼으로 열기) -->
     <div class="pillrow" id="wbBar" style="display:none" role="group" aria-label="화이트 밸런스">
       <button class="pill on" data-wbc="auto">오토</button>

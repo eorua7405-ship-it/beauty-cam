@@ -700,6 +700,8 @@ function computeWarpMap(w, hh) {
   // 코·입 실루엣이 있는 세로 구간만 보호 (그 위 관자놀이·그 아래 턱은 보정 허용)
   const yTop = L[168].y - 0.01;
   const yBot = L[17].y + (L[152].y - L[17].y) * 0.35;
+  // 눈썹 높이 — 이보다 위(이마·관자놀이 라인)는 변형에서 완전 제외 (눈썹이 찌그러지는 것 방지)
+  const browY = Math.min(L[105].y, L[334].y);
   const sstep = (a, b, x) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
 
   const P = FACE_OVAL.map(idx => [L[idx].x, L[idx].y]);
@@ -713,8 +715,13 @@ function computeWarpMap(w, hh) {
     sx /= gsum; sy /= gsum;
     const toNose = Math.max(0, Math.min(1, (P[i][0] - cx) * noseSign / faceW * 2));
     const vert = sstep(yTop - 0.02, yTop + 0.02, P[i][1]) * (1 - sstep(yBot - 0.02, yBot + 0.02, P[i][1]));
-    const s = 0.40 * (1 - toNose * yaw01 * vert);   // 코~입 높이의 코 방향만 보호, 턱·관자놀이는 보정
-    return [(sx - P[i][0]) * s, (sy - P[i][1]) * s];
+    const belowBrow = sstep(browY - 0.01, browY + 0.03, P[i][1]);   // 눈썹 위 포인트는 변형 0
+    const s = 0.40 * (1 - toNose * yaw01 * vert) * belowBrow;
+    let dx = (sx - P[i][0]) * s, dy = (sy - P[i][1]) * s;
+    // 변위량 상한: 극단적으로 튀어나온 지점도 과하게 당기지 않음
+    const mag = Math.hypot(dx, dy), cap = faceW * 0.012;
+    if (mag > cap) { dx *= cap / mag; dy *= cap / mag; }
+    return [dx, dy];
   });
 
   const img = warpCtx.createImageData(w, hh);
@@ -722,7 +729,7 @@ function computeWarpMap(w, hh) {
   for (let i = 0; i < data.length; i += 4) { data[i] = 128; data[i + 1] = 128; data[i + 3] = 255; }
 
   const asp = hh / w;                      // 세로 정규화 보정
-  const sigma = faceW * 0.09;              // 각 점의 영향 반경
+  const sigma = faceW * 0.055;             // 영향 반경을 좁게 — 변형이 외곽선 근처에만 머묾
   const acc = new Float32Array(w * hh * 3);
   for (let i = 0; i < n; i++) {
     const px = P[i][0], py = P[i][1], r = sigma * 2.5;

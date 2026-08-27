@@ -495,30 +495,55 @@ function detectFolds() {
   const faceWuv = Math.abs(L[454].x - L[234].x);
   const d = Math.max(2, faceWuv * W2 * 0.045);   // 골 검사용 수평 오프셋
 
+  const cxF = (L[234].x + L[454].x) / 2;
   const fit = (corner) => {
-    const yTop = L[2].y * H2;
-    const yBot = (corner.y + (corner.y - L[2].y) * 0.25) * H2;
-    const xa = (L[2].x + (corner.x - L[2].x) * 0.45) * W2;
-    const xb = (corner.x + (corner.x - L[13].x) * 1.9) * W2;
-    const x0 = Math.min(xa, xb) | 0, x1 = Math.max(xa, xb) | 0;
-    let sw = 0, sx = 0, sy = 0, syy = 0, sxy = 0;
+    const dirOut = Math.sign(corner.x - cxF);              // 얼굴 바깥 방향
+    // 탐색 상자: 콧구멍 아래에서 시작, 바깥 한계는 얼굴 안쪽으로 제한
+    const yTop = (L[2].y + (corner.y - L[2].y) * 0.35) * H2;
+    const yBot = (corner.y + (corner.y - L[2].y) * 0.30) * H2;
+    const xin = (L[2].x + (corner.x - L[2].x) * 0.60) * W2;
+    const lim = cxF + dirOut * faceWuv * 0.42;             // 실루엣 밖 금지
+    let xoutU = corner.x + (corner.x - L[13].x) * 1.15;
+    xoutU = dirOut > 0 ? Math.min(xoutU, lim) : Math.max(xoutU, lim);
+    const x0 = Math.min(xin, xoutU * W2) | 0, x1 = Math.max(xin, xoutU * W2) | 0;
+
+    let sw = 0, sx = 0, sy = 0, syy = 0, sxy = 0, cnt = 0;
+    const px = [], py = [], pw = [];
     const ROWS = 9;
     for (let r = 0; r < ROWS; r++) {
       const y = yTop + (yBot - yTop) * (r + 0.5) / ROWS;
       let bestV = 0, bestX = -1;
       for (let x = x0; x <= x1; x++) {
-        const v = (lum(x - d, y) + lum(x + d, y)) * 0.5 - lum(x, y);
+        const lc0 = lum(x, y);
+        if (lc0 < 55) continue;                            // 콧구멍·머리카락 등 극단 암부 제외
+        const v = (lum(x - d, y) + lum(x + d, y)) * 0.5 - lc0;
         if (v > bestV) { bestV = v; bestX = x; }
       }
-      if (bestX < 0 || bestV < 4) continue;   // 이 줄엔 골 없음
+      if (bestX < 0 || bestV < 5) continue;
+      px.push(bestX); py.push(y); pw.push(bestV);
       sw += bestV; sx += bestV * bestX; sy += bestV * y;
       syy += bestV * y * y; sxy += bestV * bestX * y;
+      cnt++;
     }
-    if (sw < 14) return null;                 // 골이 뚜렷하지 않음 → 미적용
+    if (cnt < 4 || sw < 16) return null;                   // 골이 뚜렷하지 않음
+
     const mx = sx / sw, my = sy / sw;
     const varY = syy / sw - my * my;
     const cov = sxy / sw - mx * my;
-    const a = varY > 0.5 ? cov / varY : 0;    // x = a(y-my)+mx
+    const a = varY > 0.5 ? cov / varY : 0;                 // x = a(y-my)+mx
+
+    // 직선성 검사: 점들이 흩어져 있으면 주름이 아님 (잡음·그림자 조각)
+    let se = 0;
+    for (let i = 0; i < px.length; i++) {
+      const e = px[i] - (a * (py[i] - my) + mx);
+      se += pw[i] * e * e;
+    }
+    if (Math.sqrt(se / sw) > d * 1.3) return null;
+
+    // 방향 검사: 팔자는 아래로 갈수록 바깥쪽 (해부학적 기울기 범위)
+    const an = a * dirOut;
+    if (an < -0.2 || an > 1.4) return null;
+
     const yA = yTop + (yBot - yTop) * 0.06;
     const yB = yBot - (yBot - yTop) * 0.06;
     const XA = (a * (yA - my) + mx) / W2, XB = (a * (yB - my) + mx) / W2;
@@ -528,14 +553,13 @@ function detectFolds() {
   const nl = fit(L[61]), nr = fit(L[291]);
   if (!nl && !nr) { foldState = null; return; }
   const rad = faceWuv * 0.05;
-  const lerp = (o, n) => o ? o.map((v, i) => v + (n[i] - v) * 0.45) : n;
+  const Z = [0, 0, 0, 0];
+  const lerp = (o, n) => (o && (o[0] || o[1])) ? o.map((v, i) => v + (n[i] - v) * 0.45) : n;
   foldState = {
-    l: nl ? lerp(foldState?.l, nl) : (foldState?.l ?? nl ?? [0,0,0,0]),
-    r: nr ? lerp(foldState?.r, nr) : (foldState?.r ?? nr ?? [0,0,0,0]),
+    l: nl ? lerp(foldState?.l, nl) : Z,   // 기각된 쪽은 즉시 OFF (엉뚱한 잔상 방지)
+    r: nr ? lerp(foldState?.r, nr) : Z,
     rad,
   };
-  if (!nl && !foldState.l) foldState.l = [0,0,0,0];
-  if (!nr && !foldState.r) foldState.r = [0,0,0,0];
 }
 
 function foldParams() {
@@ -851,6 +875,7 @@ function loop(ts) {
       ctx.lineCap = "round";
       ctx.globalAlpha = 0.45;
       for (const seg of [fp.l, fp.r]) {
+        if (!seg[0] && !seg[1]) continue;   // 기각된 쪽은 표시 안 함
         // GL 좌표(y 반전)를 화면 좌표로 되돌리고 화각 크롭 반영
         const X = (u) => (u * w - sx) / cropF;
         const Y = (v) => ((1 - v) * h - sy) / cropF;

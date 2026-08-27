@@ -371,12 +371,16 @@ function render() {
   // (블러와 마스크는 원본 좌표계에서 만들고, 화면에 그릴 때 한 번만 반전됨)
   const strength = smoothEl.value / 100;
   if (lastLandmarks && strength > 0) {
-    // (a) 블러 프레임 준비 (같은 색감 필터 + 블러, 반전 없이)
-    blurCtx.filter = FILTERS[currentFilter] + " blur(" + (4 + strength * 8) + "px)";
+    const L = lastLandmarks;
+    const faceW = Math.abs(L[454].x - L[234].x) * w; // 얼굴 폭 기준으로 블러 세기 결정
+
+    // (a) 블러 프레임 준비 — 약하게. 세게 하면 '뿌연 유리' 느낌이 남
+    const blurPx = faceW * (0.012 + strength * 0.018);
+    blurCtx.filter = FILTERS[currentFilter] + " blur(" + blurPx + "px)";
     blurCtx.drawImage(video, 0, 0, w, h);
     blurCtx.filter = "none";
 
-    // (b) 얼굴 윤곽 마스크 만들기 (눈/입은 파내기)
+    // (b) 얼굴 윤곽 마스크 만들기 (눈/눈썹/입/콧방울은 파내기)
     buildFaceMask(w, h);
 
     // (c) 마스크를 블러 프레임에 적용
@@ -384,8 +388,8 @@ function render() {
     blurCtx.drawImage(maskCanvas, 0, 0);
     blurCtx.globalCompositeOperation = "source-over";
 
-    // (d) 원본 위에 반투명하게 얹기 (이미 반전된 ctx가 알아서 뒤집어줌)
-    ctx.globalAlpha = 0.5 + strength * 0.45;
+    // (d) 원본 위에 은은하게 얹기 — 최대 60%까지만 섞어서 피부 질감을 남김
+    ctx.globalAlpha = 0.25 + strength * 0.35;
     ctx.drawImage(blurCanvas, 0, 0);
     ctx.globalAlpha = 1;
   }
@@ -421,15 +425,18 @@ function buildFaceMask(w, h) {
   maskCtx.fill();
   maskCtx.restore();
 
-  // 눈·입 파내기 (디테일 보존)
+  // 눈·눈썹·입·콧방울 파내기 (선명해야 하는 부위는 디테일 보존)
   const faceW = Math.abs(L[454].x - L[234].x) * w; // 얼굴 폭 기준
   maskCtx.save();
   maskCtx.globalCompositeOperation = "destination-out";
   maskCtx.filter = "blur(" + faceW * 0.02 + "px)";
   maskCtx.fillStyle = "#fff";
-  carveEllipse(L[159], L[145], faceW * 0.14, faceW * 0.07, w, h); // 왼눈
-  carveEllipse(L[386], L[374], faceW * 0.14, faceW * 0.07, w, h); // 오른눈
-  carveEllipse(L[13],  L[14],  faceW * 0.20, faceW * 0.10, w, h); // 입
+  carveEllipse(L[159], L[145], faceW * 0.15, faceW * 0.07, w, h); // 왼눈
+  carveEllipse(L[386], L[374], faceW * 0.15, faceW * 0.07, w, h); // 오른눈
+  carveEllipse(L[105], L[105], faceW * 0.16, faceW * 0.045, w, h); // 왼눈썹
+  carveEllipse(L[334], L[334], faceW * 0.16, faceW * 0.045, w, h); // 오른눈썹
+  carveEllipse(L[13],  L[14],  faceW * 0.22, faceW * 0.11, w, h); // 입
+  carveEllipse(L[2],   L[2],   faceW * 0.09, faceW * 0.045, w, h); // 콧방울
   maskCtx.restore();
 }
 

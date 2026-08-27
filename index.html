@@ -212,6 +212,7 @@
       <button class="pill on" id="tgSkin">피부결</button>
       <button class="pill on" id="tgBlemish">잡티</button>
       <button class="pill on" id="tgContour">윤곽</button>
+      <button class="pill on" id="tgFilm">필름</button>
     </div>
     <!-- 셔터스피드 -->
     <div class="pillrow" role="group" aria-label="셔터스피드">
@@ -235,7 +236,7 @@
 <div class="screen" id="editScreen">
   <div class="frame-wrap"><canvas class="frame" id="editOut"></canvas></div>
   <div class="edit-panel">
-    <div class="row"><label for="film">필름 감성</label><input type="range" id="film" min="0" max="100" value="60" /><output id="filmVal">60</output></div>
+    <div class="row"><label for="film">필름 감성</label><input type="range" id="film" min="0" max="100" value="0" /><output id="filmVal">0</output></div>
     <div class="row"><label for="sharp">선명도</label><input type="range" id="sharp" min="0" max="100" value="15" /><output id="sharpVal">15</output></div>
     <div class="row"><label for="contrast">콘트라스트</label><input type="range" id="contrast" min="50" max="150" value="100" /><output id="contrastVal">100</output></div>
     <div class="row"><label for="sat">채도</label><input type="range" id="sat" min="0" max="200" value="100" /><output id="satVal">100</output></div>
@@ -280,7 +281,7 @@ let facing = "user";
 let useFlash = true;
 let focal = 28, hwZoom = false;
 let ssChoice = "auto";
-let skinOn = true, blemishOn = true, contourOn = true;
+let skinOn = true, blemishOn = true, contourOn = true, filmOn = true;
 let mode = "cam";   // cam | edit
 let landmarker = null, lastLandmarks = null;
 
@@ -319,6 +320,7 @@ document.querySelector("#editScreen .seg").addEventListener("click", (e) => {
 $("tgSkin").addEventListener("click", (e) => { skinOn = !skinOn; e.target.classList.toggle("on", skinOn); });
 $("tgBlemish").addEventListener("click", (e) => { blemishOn = !blemishOn; e.target.classList.toggle("on", blemishOn); });
 $("tgContour").addEventListener("click", (e) => { contourOn = !contourOn; e.target.classList.toggle("on", contourOn); });
+$("tgFilm").addEventListener("click", (e) => { filmOn = !filmOn; e.target.classList.toggle("on", filmOn); });
 
 document.querySelector('[aria-label="셔터스피드"]').addEventListener("click", (e) => {
   const btn = e.target.closest(".pill");
@@ -417,6 +419,8 @@ uniform float uLens;       // 화각별 렌즈 왜곡 (28mm 배럴 ~ 50mm 평탄
 uniform sampler2D uOval;   // 윤곽 전용 마스크 (눈·입 구멍 없음)
 uniform float uWarpAmt;    // 윤곽 보정 강도
 uniform vec2  uFaceC;      // 얼굴 중심 (uv 좌표)
+uniform float uNoseGate;   // 코 방향 억제 (부호=코 방향, 크기=고개 각도)
+uniform float uInvFaceW;   // 1 / 얼굴 폭 (uv)
 
 void main() {
   vec2 uv = vUV;
@@ -432,7 +436,11 @@ void main() {
       float len = max(length(d), 0.0001);
       vec2 dir = d / len;
       dir.y /= uAspect;
-      uv += dir * uWarpAmt * band;
+      // 옆모습이면 코 방향 실루엣(콧대·입 라인)은 제외하고
+      // 반대쪽 광대·턱·볼선은 그대로 부드럽게 보정
+      float toNose = clamp((vUV.x - uFaceC.x) * sign(uNoseGate) * uInvFaceW * 2.0, 0.0, 1.0);
+      float keep = 1.0 - toNose * abs(uNoseGate);
+      uv += dir * uWarpAmt * band * keep;
     }
   }
 
@@ -510,7 +518,8 @@ void main() {
     if (band2 > 0.001) {
       vec2 sd = vUV - uFaceC; sd.y *= uAspect;
       float side = smoothstep(0.45, 0.8, abs(sd.x) / max(length(sd), 0.0001));
-      res *= 1.0 - band2 * side * 0.045;
+      float toNose2 = clamp((vUV.x - uFaceC.x) * sign(uNoseGate) * uInvFaceW * 2.0, 0.0, 1.0);
+      res *= 1.0 - band2 * side * 0.045 * (1.0 - toNose2 * abs(uNoseGate));
     }
   }
 
@@ -594,7 +603,7 @@ function initGLOnce() {
   mkTex(0); mkTex(1); mkTex(2);
   ["uFrame","uMask","uTexel","uAspect","uRadius","uSmooth","uBlemish","uFilm","uSharp",
    "uContrast","uSat","uRGB","uWB","uTime","uLens",
-   "uOval","uWarpAmt","uFaceC"]
+   "uOval","uWarpAmt","uFaceC","uNoseGate","uInvFaceW"]
     .forEach(n => uLoc[n] = gl.getUniformLocation(prog, n));
   gl.uniform1i(uLoc.uFrame, 0);
   gl.uniform1i(uLoc.uMask, 1);
@@ -628,23 +637,26 @@ function drawGL(srcTex, opt) {
   gl.uniform1f(uLoc.uLens, opt.lens ?? 0);
   const wp = opt.warp;
   gl.uniform1f(uLoc.uWarpAmt, wp ? wp.amt : 0);
-  if (wp) gl.uniform2f(uLoc.uFaceC, wp.cx, wp.cy);
+  if (wp) {
+    gl.uniform2f(uLoc.uFaceC, wp.cx, wp.cy);
+    gl.uniform1f(uLoc.uNoseGate, wp.gate);
+    gl.uniform1f(uLoc.uInvFaceW, wp.invW);
+  }
   gl.drawArrays(gl.TRIANGLES, 0, 3);
 }
 
-// 윤곽 보정 파라미터: 얼굴 중심 + 은은한 강도.
-// 옆모습에서는 얼굴 중심이 코·입 실루엣 쪽으로 쏠려 코 라인이 일그러지므로,
-// 고개 각도(코끝이 중심에서 벗어난 정도)를 감지해 옆을 볼수록 자동으로 약해진다.
+// 윤곽 보정 파라미터.
+// 옆모습에서도 꺼지지 않는다: 고개 방향(코가 향한 쪽)을 감지해서
+// 코 쪽 실루엣만 셰이더에서 제외하고, 반대쪽 광대·턱은 계속 보정한다.
 function contourParams() {
   if (!contourOn || !lastLandmarks) return null;
   const L = lastLandmarks;
   const faceWuv = Math.abs(L[454].x - L[234].x);
   const cx = (L[234].x + L[454].x) / 2;
   const cy = 1 - (L[10].y + L[152].y) / 2;
-  const yaw = Math.abs(L[4].x - cx) / Math.max(faceWuv, 0.001);  // 정면≈0, 옆모습↑
-  const frontal = Math.max(0, 1 - yaw * 3.5);
-  if (frontal < 0.05) return null;   // 거의 옆모습이면 윤곽 보정 중단
-  return { amt: faceWuv * 0.011 * frontal, cx, cy };
+  const yaw = (L[4].x - cx) / Math.max(faceWuv, 0.001);        // 부호 있는 고개 각도
+  const gate = Math.sign(yaw) * Math.min(1, Math.abs(yaw) * 3.0);
+  return { amt: faceWuv * 0.011, cx, cy, gate, invW: 1 / Math.max(faceWuv, 0.001) };
 }
 
 /* ===== 촬영 프리뷰 ===== */
@@ -661,7 +673,7 @@ function camPreviewFrame() {
     radius: Math.max(2.5, faceW * 0.030),
     smooth: (skinOn && lastLandmarks) ? 0.65 : 0,
     blemish: (blemishOn && lastLandmarks) ? 0.60 : 0,
-    film: 0.6,                                     // 프리뷰에서 필름 룩 미리 보기
+    film: filmOn ? 0.6 : 0,                        // 필름 토글 연동
     lens: LENS_MAP[focal],
     warp: contourParams(),
     time: (performance.now() % 10000) / 10000,
@@ -682,6 +694,8 @@ function captureHighRes() {
     blemish: (blemishOn && lastLandmarks) ? 0.60 : 0,
     lens: LENS_MAP[focal],
     warp: contourParams(),
+    film: filmOn ? 0.6 : 0,                        // 필름 프리셋을 사진에 직접 굽기
+    time: (performance.now() % 10000) / 10000,     // 그레인은 사진에 고정
   });
 
   // 미러링 + 화각 크롭을 구워서 편집 원본 확정

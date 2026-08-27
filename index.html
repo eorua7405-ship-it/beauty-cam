@@ -472,21 +472,40 @@ void main() {
     spot *= 1.0 - smoothstep(0.09, 0.18, darker);
     spot *= smoothstep(0.12, 0.28, c.g);
     spot *= 1.0 - 0.5 * smoothstep(0.65, 0.85, avg.g);
-    spot *= 0.85 * uBlemish;
+    spot *= 0.95 * uBlemish;
 
     float brighter = c.g - avg.g;
     float glare = smoothstep(th * 0.5, th, brighter);
-    glare *= 0.7 * uBlemish;
+    glare *= 0.85 * uBlemish;
 
-    vec3 r = mix(c, avg, spot);
-    r = mix(r, avg, glare);
+    // --- 마이크로 닷지 & 번: 색을 덮지 않고 '명암'만 주변과 맞춰 잡티를 지움 ---
+    // 잡티가 보이는 원인은 주변과의 명암 차이. 곱셈 비율로 밝기만 맞추면
+    // 모공·피부 결 같은 질감은 비율 그대로 살아남는다 (Evoto 방식)
+    vec3 lw = vec3(0.299, 0.587, 0.114);
+    float lumC = dot(c, lw);
+    float lumA = dot(avg, lw);
+    float ratio = lumA / max(lumC, 0.02);
+    float dnb = mix(1.0, ratio, max(spot, glare));   // 어두우면 Dodge, 밝으면 Burn
+    vec3 r = c * dnb;
+    // 붉은 자국 같은 '색 얼룩'은 색조만 살짝 주변으로 (밝기·질감은 유지)
+    vec3 toneMatch = avg * (dot(r, lw) / max(lumA, 0.02));
+    r = mix(r, toneMatch, spot * 0.45);
 
+    // --- 주파수 분리 스무딩: 저주파(톤) 층만 부드럽게, 고주파(모공·결)는 잠금 ---
     float dev = abs(avg.g - c.g);
     float structural = smoothstep(0.035, 0.11, dev);
-    r = mix(r, base, uSmooth * 0.45 * (1.0 - structural));
-    r += hi * 0.20 * (1.0 - max(spot, glare));
+    vec3 lowNew = mix(base, avg, uSmooth * 0.6 * (1.0 - structural));  // 톤 레이어만 섞음
+    vec3 hiKeep = r - base;                                            // 질감 레이어 (닷지앤번 반영됨)
+    r = lowNew + hiKeep * 0.92;                                        // 질감 92% 보존
 
     res = mix(c, r, m);
+  }
+
+  // ===== 닷지 & 번 컨투어링: 실루엣 밴드에 은은한 음영 → 골격을 또렷하게 조각 =====
+  if (uWarpAmt > 0.0001) {
+    float mo2 = texture2D(uOval, vUV).a;
+    float band2 = smoothstep(0.03, 0.45, mo2) * (1.0 - smoothstep(0.55, 0.95, mo2));
+    res *= 1.0 - band2 * 0.055;
   }
 
   // ===== 선명도 =====

@@ -368,31 +368,26 @@ function render() {
   ctx.filter = "none";
 
   // 2) 피부 보정: 얼굴 영역만 부드럽게 블렌딩
+  // (블러와 마스크는 원본 좌표계에서 만들고, 화면에 그릴 때 한 번만 반전됨)
   const strength = smoothEl.value / 100;
   if (lastLandmarks && strength > 0) {
-    // (a) 블러 프레임 준비 (같은 색감 필터 + 블러)
-    blurCtx.save();
-    blurCtx.translate(w, 0); blurCtx.scale(-1, 1);
-    blurCtx.filter = FILTERS[currentFilter] + " blur(" + (3 + strength * 5) + "px)";
+    // (a) 블러 프레임 준비 (같은 색감 필터 + 블러, 반전 없이)
+    blurCtx.filter = FILTERS[currentFilter] + " blur(" + (4 + strength * 8) + "px)";
     blurCtx.drawImage(video, 0, 0, w, h);
-    blurCtx.restore();
     blurCtx.filter = "none";
 
     // (b) 얼굴 윤곽 마스크 만들기 (눈/입은 파내기)
     buildFaceMask(w, h);
 
     // (c) 마스크를 블러 프레임에 적용
-    blurCtx.save();
     blurCtx.globalCompositeOperation = "destination-in";
     blurCtx.drawImage(maskCanvas, 0, 0);
-    blurCtx.restore();
+    blurCtx.globalCompositeOperation = "source-over";
 
-    // (d) 원본 위에 반투명하게 얹기
-    ctx.save();
-    ctx.translate(w, 0); ctx.scale(-1, 1); // 이미 반전된 blur 프레임 → 다시 맞추기
-    ctx.globalAlpha = 0.45 + strength * 0.35;
+    // (d) 원본 위에 반투명하게 얹기 (이미 반전된 ctx가 알아서 뒤집어줌)
+    ctx.globalAlpha = 0.5 + strength * 0.45;
     ctx.drawImage(blurCanvas, 0, 0);
-    ctx.restore();
+    ctx.globalAlpha = 1;
   }
 
   // 3) 랜드마크 표시 (학습용)

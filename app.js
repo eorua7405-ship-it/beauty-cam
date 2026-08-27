@@ -25,7 +25,7 @@ let focal = 28, hwZoom = false;
 let ssChoice = "auto";
 let skinOn = true, blemishOn = true, contourOn = true, wrinkleOn = true, filmOn = true;
 let filmPreset = 0, filmStrength = 0.6;
-let skinAmt = 0.6, blemAmt = 0.6;   // 피부결·잡티 세기 (슬라이더 100 = 최대 강도)
+let skinAmt = 0.4, blemAmt = 0.6;   // 피부결·잡티 세기 (슬라이더 100 = 최대 강도)
 let mode = "cam";   // cam | edit
 let landmarker = null, lastLandmarks = null;
 
@@ -220,7 +220,7 @@ float foldW(vec2 p, vec4 seg, float rad, float aspect) {
   float t = clamp(dot(pa, ba) / max(dot(ba, ba), 0.000001), 0.0, 1.0);
   vec2 d = pa - ba * t;
   float w = 1.0 - smoothstep(rad * 0.25, rad, length(d));
-  w *= 1.0 - smoothstep(0.65, 1.0, t);   // 입꼬리 방향 끝은 부드럽게 소멸 ('조커' 방지)
+  w *= 1.0 - smoothstep(0.55, 0.95, t);  // 입꼬리 방향으로 갈수록 일찍 소멸 ('조커' 방지)
   return w;
 }
 
@@ -463,12 +463,12 @@ function foldParams() {
   const L = lastLandmarks;
   const faceWuv = Math.abs(L[454].x - L[234].x);
   const mk = (corner) => {
-    // 시작: 콧방울 바로 옆 높이 (팔자주름의 실제 시작점)
-    const top = [L[2].x + (corner.x - L[2].x) * 0.50,
-                 L[2].y + (corner.y - L[2].y) * 0.05];
-    // 끝: 입꼬리에 닿기 전 옆쪽에서 멈춤 (입꼬리가 밝아지는 '조커' 현상 방지)
-    const bot = [corner.x + (corner.x - L[13].x) * 0.12,
-                 corner.y - (corner.y - L[2].y) * 0.12];
+    // 시작: 콧방울 바로 옆 (코밑 높이, 코 쪽에 가깝게)
+    const top = [L[2].x + (corner.x - L[2].x) * 0.42,
+                 L[2].y];
+    // 끝: 입꼬리 위 대각선 방향에서 일찍 멈춤 (입꼬리 미도달)
+    const bot = [corner.x + (corner.x - L[13].x) * 0.05,
+                 corner.y - (corner.y - L[2].y) * 0.22];
     return [top[0], 1 - top[1], bot[0], 1 - bot[1]];
   };
   return { l: mk(L[61]), r: mk(L[291]), rad: faceWuv * 0.05 };
@@ -733,9 +733,11 @@ $("camScreen").addEventListener("click", (e) => {
 });
 
 // 상태 배지를 탭하면 내부 상태를 보여줌 (원격 디버깅용)
+let debugFoldUntil = 0;
 statusEl.addEventListener("click", () => {
+  debugFoldUntil = performance.now() + 3500;   // 주름 라인 시각화
   showToast(`GPU:${glOK ? "OK" : "실패"} 얼굴:${lastLandmarks ? "O" : "X"} ` +
-    `피부:${skinOn ? "on" : "off"} 잡티:${blemishOn ? "on" : "off"} ` +
+    `피부결:${Math.round(skinAmt * 100)} 잡티:${Math.round(blemAmt * 100)} ` +
     `윤곽:${contourOn ? "on" : "off"} 주름:${wrinkleOn ? "on" : "off"} 필름:${filmOn ? Math.round(filmStrength * 100) : "off"}`);
 });
 
@@ -770,6 +772,27 @@ function loop(ts) {
   ctx.save();
   if (facing === "user") { ctx.translate(w, 0); ctx.scale(-1, 1); }
   ctx.drawImage(src, sx, sy, sw, sh, 0, 0, w, h);
+
+  // 진단 모드: 주름 캡슐 위치를 화면에 표시 (상태 배지 탭 후 3.5초)
+  if (performance.now() < debugFoldUntil) {
+    const fp = foldParams();
+    if (fp) {
+      ctx.strokeStyle = "rgba(255,80,120,0.95)";
+      ctx.lineWidth = Math.max(2, fp.rad * w * 2 / cropF);
+      ctx.lineCap = "round";
+      ctx.globalAlpha = 0.45;
+      for (const seg of [fp.l, fp.r]) {
+        // GL 좌표(y 반전)를 화면 좌표로 되돌리고 화각 크롭 반영
+        const X = (u) => (u * w - sx) / cropF;
+        const Y = (v) => ((1 - v) * h - sy) / cropF;
+        ctx.beginPath();
+        ctx.moveTo(X(seg[0]), Y(seg[1]));
+        ctx.lineTo(X(seg[2]), Y(seg[3]));
+        ctx.stroke();
+      }
+      ctx.globalAlpha = 1;
+    }
+  }
   ctx.restore();
 }
 
